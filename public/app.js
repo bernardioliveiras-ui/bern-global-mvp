@@ -1,5 +1,5 @@
 const $=sel=>document.querySelector(sel);
-const data={user:null,legalRequests:false,mode:'login',offset:0,country:'',preview:true,more:false};
+const data={user:null,legalRequests:false,mode:'login',offset:0,country:'',preview:true,more:false,recentJobs:[],recentIndex:0,recentTimer:null};
 function el(tag,cls,text) {const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=String(text);return n;}
 function clear(node) {node.replaceChildren();}
 function showToast(message) {const t=$('#toast');t.textContent=message;t.classList.add('visible');setTimeout(()=>t.classList.remove('visible'),5500);}
@@ -11,7 +11,7 @@ async function api(path,method='GET',payload) {
   return body;
 }
 function openAuth(mode='login',role='candidate') {
-  data.mode=mode;$('#authPanel').hidden=false;$('#authTitle').textContent=mode==='signup'?'Criar conta':'Entrar na conta';
+  data.mode=mode;$('#authPanel').hidden=false;$('#authForm').hidden=false;$('#checkoutStep').hidden=true;$('#authTitle').textContent=mode==='signup'?'Crie seu acesso':'Entre na sua conta';
   $('#nameField').hidden=mode!=='signup';$('#roleField').hidden=mode!=='signup';$('#passwordHint').hidden=mode!=='signup';
   $('#authPass').setAttribute('autocomplete',mode==='signup'?'new-password':'current-password');$('#authSubmit').textContent=mode==='signup'?'Criar conta':'Entrar';
   $('#authNote').textContent=mode==='signup'?'Após criar a conta, você poderá iniciar o checkout InfinitePay. Não liberamos acessos sem confirmação do pagamento.':'Se sua conta foi criada pelo administrador, use a senha provisória e altere-a no painel.';
@@ -28,19 +28,95 @@ function loginState(me) {
     $('#accountInfo').textContent=`${data.user.email} · ${data.user.role==='lawyer'?'Profissional jurídico':data.user.role==='candidate'?'Candidato':data.user.role==='company'?'Empresa':'Administrador'}`;
     $('#passwordBox').hidden=false;
     $('#accessArea').replaceChildren();
+    renderDashboardMeta();
     if(data.user.must_change_password){$('#accessArea').append(el('div','status','Você precisa trocar a senha provisória para continuar.'));}
     else if(!data.user.active){const msg=el('div','status',`Seu acesso não está ativo. Adquira ${data.user.role==='lawyer'?'o plano jurídico (R$ 29,90)':data.user.role==='company'?'o plano empresa (R$ 129,90)':'o plano candidato (R$ 9,90)'} para liberar seu painel.`);$('#accessArea').append(msg);}
-    else {$('#accessArea').append(el('div','status green',`Acesso ativo até: ${new Date(data.user.access_until.replace(' ','T')+'Z').toLocaleDateString('pt-BR')}`));}
+    else {$('#accessArea').append(el('div','status green',`${data.user.is_demo?'AMBIENTE DE DEMONSTRAÇÃO · ':'Acesso ativo até: '}${new Date(data.user.access_until.replace(' ','T')+'Z').toLocaleDateString('pt-BR')}${data.user.is_demo?' · sem cobrança':''}`));}
     if(data.user.role!=='admin'&&!data.user.must_change_password){const b=el('button','btn accent',data.user.active?'Renovar plano (mais 30 dias)':'Comprar acesso (30 dias)');b.onclick=buy;$('#accessArea').append(b);}
     $('#loginToggle').textContent='Meu painel';$('#userPanel').replaceChildren();
     if(data.user.role==='lawyer'&&data.user.active&&!data.user.must_change_password) showLawyerPanel();
     if(data.user.role==='company'&&data.user.active&&!data.user.must_change_password) showCompanyPanel();
     if(data.user.role==='candidate'&&!data.user.must_change_password) showCandidateApplications();
-  } else {$('#loginToggle').textContent='Entrar';$('#userPanel').replaceChildren();}
+  } else {$('#loginToggle').textContent='Entrar';$('#userPanel').replaceChildren();clear($('#dashboardMeta'));}
 }
 async function refreshMe() {try{loginState(await api('/api/me'));}catch{loginState(null);} await loadJobs(true);}
 async function buy(){if(!data.user){openAuth('signup');return;}if(data.user.must_change_password){showToast('Altere sua senha provisória antes de pagar.');return;}
   try{const x=await api('/api/checkout','POST',{});window.location.assign(x.checkout_url);}catch(err){showToast(err.message);}}
+function renderDashboardMeta(){
+  const container=$('#dashboardMeta');clear(container);
+  const role=data.user.role;
+  const profiles={
+    candidate:['CARREIRA','Vagas e candidaturas','Informações documentais'],
+    lawyer:['ATUAÇÃO JURÍDICA','Perfil profissional','Solicitações somente consentidas'],
+    company:['RECRUTAMENTO','Minhas vagas','Candidaturas e mensagens'],
+    admin:['ADMINISTRAÇÃO','Gestão do sistema','Permissões administrativas']
+  };
+  const p=profiles[role]||profiles.candidate;
+  const status=data.user.must_change_password?'Senha provisória':data.user.is_demo?'Acesso de demonstração':data.user.active?'Assinatura ativa':'Aguardando assinatura';
+  for(const [label,value] of [[p[0],p[1]],['STATUS',status],['FERRAMENTAS',p[2]]]) {
+    const card=el('div','dash-tile');card.append(el('small','',label),el('b','',value));container.append(card);
+  }
+}
+function showCheckoutStep(){
+  if(!data.user) return;
+  $('#authPanel').hidden=false;$('#authForm').hidden=true;$('#checkoutStep').hidden=false;
+  $('#authTitle').textContent='Tudo pronto para contratar';
+  const labels={candidate:'candidato',lawyer:'profissional jurídico',company:'empresa'};
+  const amounts={candidate:'R$ 9,90',lawyer:'R$ 29,90',company:'R$ 129,90'};
+  $('#checkoutDescription').textContent=`Sua conta de ${labels[data.user.role]||'usuário'} foi criada. Agora escolha se deseja ativar as ferramentas do plano.`;
+  $('#checkoutPrice').replaceChildren();
+  $('#checkoutPrice').append(document.createTextNode(amounts[data.user.role]||'—'),el('small','',' / 30 dias'));
+  $('#authPanel').scrollIntoView({behavior:'smooth',block:'start'});
+}
+function recentDisplayDate(value){
+  if(!value) return 'Publicação recente';
+  const date=new Date(value.replace(' ','T')+'Z');
+  return Number.isNaN(date.getTime())?'Publicação recente':new Intl.DateTimeFormat('pt-BR',{day:'2-digit',month:'short'}).format(date);
+}
+async function loadRecentJobs(){
+  const track=$('#recentTrack');
+  try{
+    const r=await api('/api/latest-jobs');
+    data.recentJobs=r.jobs||[];data.recentIndex=0;clear(track);
+    $('#recentUpdated').textContent=data.recentJobs.length?`${data.recentJobs.length} vagas recentes encontradas`:'Sem vagas publicadas ainda';
+    if(!data.recentJobs.length){
+      const empty=el('article','recent-empty');
+      empty.append(el('span','recent-empty-icon','↗'),el('h3','','Monitorando novas oportunidades'),el('p','','Assim que o Bern JobBot encontrar vagas reais ou uma empresa tiver sua publicação aprovada, elas aparecem aqui automaticamente.'));
+      track.append(empty);
+    }
+    for(const j of data.recentJobs){
+      const c=el('article','recent-card');const h=el('div','recent-card-head');
+      h.append(el('span','recent-company',j.employer),el('span','recent-flag',flag(j.country)));
+      c.append(h,el('h3','',j.title),el('p','recent-meta',`${countryName(j.country)} · ${j.location||'Localidade a confirmar'}`));
+      const [cls,label]=j.kind==='company'?['tag','Empresa verificada']:badge(j.international_status);
+      c.append(el('span',cls,label));
+      const foot=el('div','recent-bottom');foot.append(el('span','',`Identificada em ${recentDisplayDate(j.posted_at)}`));
+      const b=el('button','','Ver vaga ↗');b.type='button';b.onclick=()=>{$('#countryFilter').value=j.country;data.country=j.country;loadJobs(true);$('#vagas').scrollIntoView({behavior:'smooth'});};foot.append(b);c.append(foot);track.append(c);
+    }
+    $('#recentPrev').disabled=data.recentJobs.length<2;
+    $('#recentNext').disabled=data.recentJobs.length<2;
+    initRecentCarousel();
+  }catch(err){
+    $('#recentUpdated').textContent='Catálogo indisponível';
+    clear(track);const note=el('article','recent-empty');note.append(el('h3','','Não foi possível carregar agora'),el('p','','Tente atualizar a página para consultar as vagas recentes.'));track.append(note);
+  }
+}
+function carouselStep(direction){
+  if(data.recentJobs.length<2)return;
+  data.recentIndex=(data.recentIndex+direction+data.recentJobs.length)%data.recentJobs.length;
+  const cards=$('#recentTrack').querySelectorAll('.recent-card');
+  const card=cards[data.recentIndex];if(card)$('#recentWindow').scrollTo({left:card.offsetLeft-cards[0].offsetLeft,behavior:'smooth'});
+}
+function initRecentCarousel(){
+  if(data.recentTimer)clearInterval(data.recentTimer);
+  if(data.recentJobs.length<2||window.matchMedia('(prefers-reduced-motion: reduce)').matches)return;
+  let paused=false;
+  const viewport=$('#recentWindow');
+  viewport.onmouseenter=()=>paused=true;viewport.onmouseleave=()=>paused=false;
+  viewport.onfocusin=()=>paused=true;viewport.onfocusout=()=>paused=false;
+  document.addEventListener('visibilitychange',()=>{paused=document.hidden;},{once:false});
+  data.recentTimer=setInterval(()=>{if(!paused&&!document.hidden)carouselStep(1);},4900);
+}
 async function loadJobs(reset=false){
   if(reset){data.offset=0;clear($('#jobList')); await loadCompanyJobs();}
   try{const qs=new URLSearchParams();if(data.country)qs.set('country',data.country);qs.set('offset',data.offset);qs.set('limit','20');
@@ -142,15 +218,19 @@ async function showLawyerPanel(){const p=$('#userPanel');p.append(el('h3','','Pa
   try{const r=await api('/api/requests');p.append(el('h3','',`Solicitações recebidas (${r.requests.length})`));for(const item of r.requests){const c=el('div','request');c.append(el('strong','',item.contact_name),el('p','',item.message),el('div','muted',`E-mail: ${item.contact_email} · Telefone: ${item.contact_phone||'Não informado'} · Status: ${item.status}`));const a=el('a','btn outline','Responder por e-mail');a.href=`mailto:${encodeURIComponent(item.contact_email)}`;c.append(a);const btn=el('button','btn outline','Marcar como contatado');btn.onclick=async()=>{try{await api('/api/requests/status','POST',{request_id:item.id,status:'contacted'});btn.disabled=true;showToast('Solicitação atualizada');}catch(err){showToast(err.message);}};c.append(btn);p.append(c);}}catch(err){showToast(err.message);}}
 $('#loginToggle').onclick=()=>data.user?$('#dashboard').scrollIntoView({behavior:'smooth'}):openAuth('login');
 $('#signupToggle').onclick=()=>openAuth('signup');$('#heroStart').onclick=()=>$('#vagas').scrollIntoView({behavior:'smooth'});$('#authClose').onclick=()=>$('#authPanel').hidden=true;
+$('#recentPrev').onclick=()=>carouselStep(-1);$('#recentNext').onclick=()=>carouselStep(1);
+$('#checkoutProceed').onclick=buy;$('#checkoutLater').onclick=()=>{$('#authPanel').hidden=true;$('#dashboard').scrollIntoView({behavior:'smooth'});};
 $('#authForm').onsubmit=async e=>{e.preventDefault();try{const payload={email:$('#authEmail').value,password:$('#authPass').value};
   const r=data.mode==='signup'?await api('/api/signup','POST',{...payload,name:$('#authName').value,role:$('#authRole').value}):await api('/api/login','POST',payload);
-  $('#authPanel').hidden=true;$('#authForm').reset();await refreshMe();$('#dashboard').scrollIntoView({behavior:'smooth'});showToast(data.mode==='signup'?'Conta criada. Adquira seu plano para ativar.':'Login realizado.');
+  $('#authForm').reset();await refreshMe();
+  if(data.mode==='signup'){showCheckoutStep();showToast('Conta criada! Próxima etapa: pagamento do plano.');}
+  else{$('#authPanel').hidden=true;$('#dashboard').scrollIntoView({behavior:'smooth'});showToast('Login realizado.');}
   }catch(err){showToast(err.message);}};
 $('#passwordForm').onsubmit=async e=>{e.preventDefault();try{await api('/api/change-password','POST',{current_password:$('#oldPass').value,new_password:$('#newPass').value});showToast('Senha alterada! Entre novamente.');$('#passwordForm').reset();await refreshMe();openAuth('login');}catch(err){showToast(err.message);}};
 $('#logout').onclick=async()=>{try{await api('/api/logout','POST',{});await refreshMe();showToast('Você saiu da sua conta.');}catch(err){showToast(err.message);}};
 $('#countryFilter').onchange=e=>{data.country=e.target.value;loadJobs(true);};$('#lawyerCountry').onchange=loadLawyers;$('#refreshJobs').onclick=()=>loadJobs(true);$('#moreJobs').onclick=()=>loadJobs(false);
 document.querySelectorAll('[data-plan]').forEach(btn=>btn.onclick=()=>{if(!data.user){openAuth('signup',btn.dataset.plan);return;}if(data.user.role!==btn.dataset.plan){showToast('Este plano não corresponde ao tipo da sua conta.');return;}buy();});
-(async function init(){await refreshMe();await loadLegal();await loadLawyers();const params=new URLSearchParams(location.search);if(params.get('payment_return')){
+(async function init(){await refreshMe();await loadRecentJobs();await loadLegal();await loadLawyers();const params=new URLSearchParams(location.search);if(params.get('payment_return')){
   // Nunca ativar só pelo retorno do navegador; consultar InfinitePay através do servidor.
   if(!data.user){showToast('Faça login para verificar seu pagamento com segurança.');openAuth('login');return;}
   if(params.get('transaction_nsu')&&params.get('slug')&&params.get('order_nsu')){

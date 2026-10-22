@@ -46,10 +46,10 @@ async function currentUser(req,db) {
   const token=cookies(req)[cookieName];
   if (!token) return null;
   const digest=await shaHex(token);
-  return await db.prepare("SELECT u.id,u.name,u.email,u.role,u.force_password_change,u.access_until FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at > datetime('now')").bind(digest).first();
+  return await db.prepare("SELECT u.id,u.name,u.email,u.role,u.force_password_change,u.access_until,u.demo_until FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at > datetime('now')").bind(digest).first();
 }
 function active(u) {return !!(u && (u.role==='admin'||(u.access_until && Date.parse(u.access_until.replace(' ','T')+'Z')>Date.now())));}
-function userResponse(u) {return {id:u.id,name:u.name,email:u.email,role:u.role,access_until:u.access_until,active:active(u),must_change_password:!!u.force_password_change};}
+function userResponse(u) {return {id:u.id,name:u.name,email:u.email,role:u.role,access_until:u.access_until,active:active(u),is_demo:!!(u.demo_until&&Date.parse(u.demo_until.replace(' ','T')+'Z')>Date.now()),must_change_password:!!u.force_password_change};}
 function safeHttps(value) {
   if(!value) return null;
   try {const u=new URL(String(value));if(u.protocol!=='https:'||u.username||u.password||u.href.length>700)return null;return u.href;}catch{return null;}
@@ -110,8 +110,25 @@ async function handleApi(req,env,url) {
     if (origin && origin!==url.origin) return fail('Origem não permitida',403);
     if (!origin && !path.startsWith('/api/admin/')) return fail('Origem obrigatória em requisições de escrita',403);
   }
-  if(path==='/api/health'&&method==='GET') return json({ok:true,service:'bern-global',version:'0.2.0'});
+  if(path==='/api/health'&&method==='GET') return json({ok:true,service:'bern-global',version:'0.3.0'});
   if(path==='/api/legal'&&method==='GET') return json(legalInfo);
+  // Carrossel publico: apenas oportunidades reais, ativas e aprovadas, nunca fixtures.
+  if(path==='/api/latest-jobs'&&method==='GET') {
+    const result=await db.prepare(`
+      SELECT id,'jobbot' AS kind,title,employer,country,location,international_status,first_seen_at AS posted_at,NULL AS image_url
+      FROM jobs j
+      WHERE is_active=1 AND last_seen_at>=datetime('now','-14 days')
+      AND NOT EXISTS(SELECT 1 FROM jobs j2 WHERE j2.job_url=j.job_url AND j2.id<j.id AND j2.is_active=1)
+      UNION ALL
+      SELECT j.id,'company' AS kind,j.title,p.legal_name AS employer,j.country,j.city AS location,
+        'company' AS international_status,j.created_at AS posted_at,j.image_url
+      FROM company_jobs j JOIN company_profiles p ON p.user_id=j.company_id JOIN users u ON u.id=j.company_id
+      WHERE j.status='published' AND p.verified=1 AND u.access_until>datetime('now')
+      ORDER BY posted_at DESC LIMIT 18
+    `).all();
+    return json({jobs:result.results,updated_at:new Date().toISOString()});
+  }
+
   if(path==='/api/signup'&&method==='POST') {
     const p=await body(req),email=safeString(p.email,240).toLowerCase(),role=p.role;
     if(!/^\S+@\S+\.\S+$/.test(email)||!['candidate','lawyer','company'].includes(role)||!validPassword(p.password)||!safeString(p.name,100)) return fail('Confira nome, e-mail, perfil e senha (mínimo 12 caracteres)');
@@ -153,6 +170,20 @@ async function handleApi(req,env,url) {
       if(role==='lawyer') await db.prepare('INSERT INTO lawyer_profiles(user_id) VALUES(?)').bind(id).run();
     if(role==='company') await db.prepare('INSERT INTO company_profiles(user_id) VALUES(?)').bind(id).run();
       return json({id,email,role,must_change_password:true},201);
+    }
+    // Concessao TEMPORARIA para validar visualmente os tres perfis sem gerar pagamento ficticio.
+    // Apenas contas descartaveis .invalid, nunca clientes reais.
+    if(path==='/api/admin/demo-access'&&method==='POST') {
+      const p=await body(req),email=safeString(p.email,240).toLowerCase();
+      if(!/^[a-z0-9._+-]+@bern\.invalid$/.test(email)||p.purpose!=='visual-testing')
+        return fail('A demonstracao so pode ser concedida a contas @bern.invalid para teste visual',403);
+      const u=await db.prepare('SELECT id,role FROM users WHERE email=?').bind(email).first();
+      if(!u||!['candidate','lawyer','company'].includes(u.role)) return fail('Conta demo inexistente',404);
+      await db.batch([
+        db.prepare("UPDATE users SET access_until=datetime('now','+24 hours'),demo_until=datetime('now','+24 hours') WHERE id=?").bind(u.id),
+        db.prepare("INSERT INTO demo_access_grants(id,user_id,reason,expires_at) VALUES(?,?,'visual-testing',datetime('now','+24 hours'))").bind(uid(),u.id)
+      ]);
+      return json({ok:true,role:u.role,email,expires_in_hours:24,note:'Acesso demo sem pagamento. Nao habilita verificacao juridica ou publicacao automatica de vagas.'});
     }
     if(path==='/api/admin/reset-password'&&method==='POST') {
       const p=await body(req),email=safeString(p.email,240).toLowerCase();

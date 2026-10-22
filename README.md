@@ -1,3 +1,7 @@
+# **ATUALIZAÇÃO v0.3 — portal de vagas e três contas demo**
+
+Leia `docs/GUIA-V03-ATUALIZACAO.md` antes de atualizar o Worker remoto. **Aplique `0003_demo_access.sql` antes de publicar v0.3.** Acesso de teste de 24h via chave administrativa, sem pagamento fictício. O carrossel mostra apenas vagas existentes no D1.
+
 
 ## Atualização v0.2 — empresa, visual e proteção de dados
 
