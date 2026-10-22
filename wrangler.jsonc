@@ -9,7 +9,7 @@
     {
       "binding": "DB",
       "database_name": "bern-global-db",
-      "database_id": "092822c0-806e-4492-acfe-9a252f477c42",
+      "database_id": "78611ba7-7f7b-415d-b977-6efc296b6fbc",
       "migrations_dir": "migrations"
     }
   ],
