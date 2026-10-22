@@ -9,12 +9,13 @@
     {
       "binding": "DB",
       "database_name": "bern-global-db",
-      "database_id": "78611ba7-7f7b-415d-b977-6efc296b6fbc",
+      "database_id": "092822c0-806e-4492-acfe-9a252f477c42",
       "migrations_dir": "migrations"
     }
   ],
   "vars": {
     "ENABLE_LEGAL_REQUESTS": "false",
+    "COMPANY_MVP": "true",
     "JOBBOT_BATCH_SIZE": "8"
   }
 }
