@@ -4,6 +4,8 @@ const PLATFORM_FEE_RATE = 0.20;
 const PAGE_SIZE = 20;
 const MAX_IMAGE_CHARS = 200000;
 const SESSION_DAYS = 30;
+const BRAND_LOGO_DATA = "data:image/webp;base64,UklGRkoSAABXRUJQVlA4ID4SAACwSgCdASqQAJAAPjEWiUKiISEUylZQIAMEoA1E4IwJ/r/m21L+ofh/1weJHRHlheM/qf/C+6f3teonzAP0+/4f959W71G+YD9uf2q95j/Fepr0AP6R/t+sO9AD9x/TU/dL4Rf23/aj2k//trKDD/7r+Uvn3+MfSP3P8mf3d6CMSD4/9kvxf9t/bX8ufmD/Q+MfyL1Bfwz+Wf4n8u/yq5DO13oC+z31r/Wfmz/d/TW1QcgD+e/1r/W/mdzYdAD+a/3f/e/4v8jfpf/pv/Z/pfy59t351/i/+3/m/gH/kv9X/1/9z/zH/r/yP//+tP2W/tN7OP7Af/VFspcuWVbjPerF2hp3sGuSTSNx6AmqQJewtcxD6nzrDmrUHMmQoNugEcsoW5Vbei66Fg0nR+b0+c4Vzrl636a4Mwgvoo/97ebv1FulXPGMYPNt/erHeDv48iIAc59UZkKoSiTxqx9q7mRxuf256sBhxneWUt5RrJsyqepz80zaRZuSJC99g8sj9IBZtdLaWB6O4X04SwW+9jquBYHcqc3wFaosrNOcCvRwx5yZxatpSWSiWPkZMA/OmnMop4WThzqngkk5znjth5mKW6E5uqVLm4uwm5RgfzXYhNodgOjc9+CMuhN/TusYVrVYQV5bFRnF+Rx9sxXXw/Avv5x7dfTFAkfz4fp49fWvlLxYcWT8FTNVwqu/oVEa3n84praFtx4k/V+Z6GTSS15T4wOy74VmYtr8C/qsbC74mUSl/aaMrBzpr4q1VYAcf5546ELJxwedUwaIJUlrAt9e7JB1rDzvAytoqnsNA6AA/v7uqp5MSYAsu0WUmi2qNaUp5qTiAlVt5wpFcARC4YJQUuCReDYL1zxvfEZVpl1M9kbgwyQWAqYIdLfCnb0XsFR887kopsTN3XMB3cQtk0YOykxfXzOoX+qlnpnVidDDfQn8Po7eM3eJJQ7iuIEok7p0U9ng7vLye7FbCRWrPe1LyNplqSsdvUYP0yHSAibRtrVk1Rdu6D6ei+n5vRtpgz+BNzjzuB49PslBhluLLpNcYk2n0J8jwiCqLmHr1jf07GvT3k6o4L3J5qa/6Pyp1hr+Am3SYKPk+Y7epeoA3/4YaLLIDS7Sf9/MoBR1n3qyV1fVjKVrziSdA65HQ/k4hukXfAOONhotc4wnjFScesskiitum8Ex+6Qlt2e+GzPa5c732hV+G2ZnUHA0TMPMa8/Q9MQpzRto/97qA65L8YT8WD3bxUzbKgFRO0m5BY6+6HkM4BcpF9BmfMUhjWD+AIPmFUZXlFm5ZNcuMZv2dPm2/fFxEWVjK75g2R09s2SE3l7zoYBWEpWZhsQ9AyNUQ+fIPoYR4DiATQY0eCoTSXNtkZzImu52YxDY+In5fKxZo+eBBIPgypX+HwwiS+//NEiqcTi/KFbT9xWs0WLtNoTREhLlkGd7/yzV8srxaYTV8gJ5wp46SZi93LQeeTZqg+MGg0felj7AR6x3+sOSYMjmFCc2OPVVM/wsLEORD5tpqz/ajJ8ikW1bhA9l4rrEGuhC30+eF4hZ+VRQJX/KkOIw3HnyUe5KZWBEIkfZmy1yeM9bGa0Xvzzi2sxd+H7O4OeksWB87p3/CqrrlMFM6V4O5aasVIZbOklJuHOkwI+6t5OApfImOb8zW3ldOfdh0p8DenYMTnLNwweYDzQLrt3eqMwfs30brc4yWzI/CMtVKS0zpasK6VakONmj9/VgUnAYRomkz/7/ohG2tUzi5wXlmBza5g0/baMJE9d9kl7X2BC99fKVJ2Xisk6+CsD3qUZ9eUSmhzY/gGfg2R4XvwJM5F2ChftE82VDZGqLirB3G5mO+WYNDFVCTt2QQg0I4OfotOoKInF8KW5xTFPv2ErgHEveNmUMCR4mrI4FO/u4gb79l9Q27+FU7ClKtrxz6nvmnRE8ATtLU7KmXBsR6ly4b+MyE5Hnrt4EKdmeHGT2HB1W/dMAzQh1tn+EAvaCz9ej4NLnXNmnxHc3+LfrjBe6FBjAUnna38ZWpviZfpexALfXqe735848n2pr9Zz+PdzBsLCmBGhacLZJGCu2SvQU2HZ538KiPqmPBf+jxrJxej5zASgY7fPkwkOEn5pVdDb2beaIkumvqn263SAlV9Celsyyb+ezQuOKvvgXdlcqmD6JThN12CJCLVUDVJSLPpFyJgNDPH+mM0jT9nDwsziDEeZhpTP3Jb7UJtH8tSY//OJwUVuP1Sg+Kb8Ij6ADsngY0D7a1tWorHDFNbl/EvnyZ8bdSP+Tl4l86LJt/oZm37gl0/CcwD+WMeqB65GWA8PYzvzTuQK+yzshGnoCHpBF5qKrk9r+hGKfQTYvwLukwosNXTsiQwJV9NKGTwl7Rn4cV9t9+amyxEqLBUjsCbC4jsJ5XSA2RivgWb6qzDLlj6vCLhskoPw52gPkV41wxDLS8dNw3FLO7/1q2dNzWOxI5GFv+BUVP+8EEwocOv1glCEe+qOGXWJGfYx5l3d2pTQMRZ+ZfmlHYMFGEFeze2MR6XqVdeFaQBtkAOD2jmGtTYuJQVQ5k0/njagst09rYGs/q0RKIVD1kudr2OULhMMNbE0d16qVdmnPcysMCh+nONVmq52SRZbSMgmrMc9iVOv2kZP2kOkzDrgcEGt7QCN4Fg7Z12gSriMX7XKcFh4/7P4zj86dhNmwRjoEB5Oc4IeUOGoW/4HRlbluh6bJrVA3Sk0m+U1cEJO4gjCn4itMzSASHjPleI+GF+rKMtzIh9ODXh7k3L1i6en44fKa9IQU751DAU+mvDrhZQ1BmCKP9Mcq6EXWvI3AmMU+OFIkRNvrOQBpJpR5YUDqaJFSBCpeEV0rs9FMZBWvmRmbkQlPLIBMrn0EaTRYP1qniEIR3etjPVbls9kinbTYIfiCudetKjMHxBhBeq31R+hAJtNXILtcL7hErS48WNzG1jVFE5fU14P19UB111RSEt+kapS4Z1djzMdumSutxC+QF5JLHZ/wmgWCMjD8WKHcF5avVWJ+5T4UKsb0mBKb7ZbwZVL4nNr308+PRNEjucnmsInmH6Zp5vMn8LzN2N7wFYig+uSGjDeC8X/DAtfZLiJIFZZDoA/fhE1y+m8mtHp0FwMhihdLzapj/8RaPtnWrL3LEo4JDOib74dt9dLWqrw0gpraE43t5b93h6v0uT0qqEP/aesGyMzEwk4DMRnxLlnlQzqaEDNlIpEWW9tjuSvgVclxqRoB9HBVmvqKxRMxoozwUmQFcYdvpqRYo+NIbEV9IT+hZf6BGDMC3djieOTNYsp/lYX1FwLKEe9aRliNFku6V0C05THmFo5oE+RSM0pClspz5fPNsNyFtwAGXquprEGpYXqtYAqbRmneqIwetHmRCekJHuvbX7lk1eZkEa7nq2eQIVUX3MmpbsJbyLmylZcqlvpqkGq7FeoUVLtxVArLfTzgS/RrbC7uPHzx8uhtIEOiJyYrkyEo/ej6+Dz9FlKyQBXSW8RMd5HOBCfUUXmp9sojYeCYTUFCoLfzywUYyiWc5nCFG8FmTD2q60MZijM3r2z3N4f2Z28+IumJgcHihUz3Ckx46fAtUxJBdiNORGCgCLjhlYkm3V5cJrzxPdlHptkKUjVRzaTT0dHeZsiUdPn8kZMa81ognx9Xswpe10L19f3RcmmG8a/qXpFaaSbUlIZaKCa77wiBp/FoXc+WUyG5ra9470ZbFG66ulRN1l2vZmQdVamR6IHRb+eqEFxSbyE5BluTNxTqf8G1wr9Nebqc9ut57E7+L9N3Ep5qSoMcGaKoyX5hmgHEBLJAUL9nSVsT8pmt+cWkVOJGSsQsJOQ3XjACjGUOa7szKo6YUONJPJcbzljjdAsWCuavmN6hq9RB0nZM9QcFVKpsllvd/nF+//hrwljyjC9rcDa36ymd5fUAwmvgPqo/bpEIza3AVNOPslmiJkmnKaiMk5hI/chSLDjlKIJmD7P1cbpb74fpdr+EwiCTtWRiRHo+mamdTq9/IRckrxM3N98m04+LWYei2HRp7NfzrM+awxiP+KNv5MI/fONTrt7+aRx8p4LuSJ7Mp5iBXlH9SA6AkS6tYIbmUPxFoyBvsnpMRQWBpTf6fhoqUjoYfS+J4w4Iom35HaAksiVUoLG/jt7GBXn1VqGrm2QwWVJp72zt0+cr61FXTSjbDAeyrjJsrKA/53I2WnX3mVYRaHRQSQZi+ciquQkn/SAFBt/AT8aobDNeFiw4hUbI64K3TwJKxWsxAVJGQwdbaWhluB3ElbyAI1guvGnqHgI5eFeG7DJBdIzSUssUJaZcFwv3o8AWzJh61eI0W+kzbvV6+h/YnSzLTGgmmdet6KTs/jMvoMYjjM6mAcxupkAiXeECjVR3E43iQRVSz79LIhwu57AXfm+qte5dsQfmB7wHKmQRzC21zHrF2PQi8MDfU/X9BN10fYMQFwnxGHLqbq8iQiNxw7z2S0Tl9pf/wAVmiBQJ8G3kBFLcP6sZKxNHRjV5yzx9xysmP/3xACGUNayZJo3wwlV9Iiey9SsuJuc4bhxfDkKpKbmUl33g9fwvYxzdX/pAEGVnE7yRVlT2NJuU+fqRyh5MQyX0LBSu0dDRJNOWMzQmQMjlxZOkUsV16wfGU3PUWpTX9w/++yf/kLxJacVdL4L4xiTQaWqUvWq5YaCrz+VTv/klW7DCaMEe+khQat6vYWE21noftjdnvOcJB1YSSTP3mH7DtnJfhgPZnQiy4dipDrT1nCIgDPpd/t89LhVIIqElhBUvh6eFLIe66eJAu61XzWwjX+441mdXNw4hO28Hl/o4wJ01/3DaVj0Ny27PEcE2zdYTvTnIuSqXKzoISRb/+ziOpZUnanLhi84htHI6MsezwKv/b5Yd/D5ORcWjK/8oDOVvsfzXpcnRV93vzWrBkLCE9BBzDTU6S+I7Nc6QtW5+OkykULlyP4a/4VZcHECNp4TZIoU6AVDD6OAOgB4LL9ldk8pNMB+cPfw4Ii9PBeku7HnNDgizz9F2vA12ruU19ql/lhtphVkLUt15SnLWqTQqrEkFS5ImiR/qTi4YsEPNr979GRFW30RVao2C6381h4/Z/+SF9MLLpKGd4MXzuzHobe5LOPX5sdkCVSvU1s9SCrgNUGZ3MR5rbA70yAuirX5NhgdKxCdYKTV4ziVwu1wI3IyiVUvX8fNGZyj7FIiewn3WgdjsrwOocltTEQbxV2cACkhvxVr6SlCXG1a8SjrbYvPOw3nKFg3rSkeIjku6XDWBCbxKkhr+sYLkar2HrFeS/RZ+5znOVheY1Ge9RKeeN1VWri3Qn7CAvQZHIqZhm1Ci0fvEZh8w3GzKzRHDy9M0HxrdOQ93WCNa28hDc006VR2lLl32KIab7vvtWMmz5dVhkuZwYvC/edVKuOLpxcmYHMuek6PxaG2Fm/R1s75bS/zHGHviW5le4UYOJQAXN946eftAgH/NK7fWOY9OBuXFoU1ZVk1/TxTZl/+34mYzeHDIb+UbMM8jvIP9F72zyBvH2ovztXhT2DxEpWlD/z7xk3H6wfoyWnafrXoqDjWtex1oesKNla3/+LL5QCZBxSItT/ADLb9vJ8OCGVEOcMQN3LJNgbl1A4ik6WUN81G91YAmJwN7X/dy1rypsZgoBadBotjKcqhfdETqsq72HCfDujBSkWE/IF1pCUS68bcu/JRwVAj3CkTieRv4750mgHFGnAABj9Dxrn6F82mbuLNNo+w+Oz8a561Qjexr9qcqeLkyZplFoWTFxEvqIIVEoEt2i78gVo4bRlST+hEjixZFe8Z0ipXniDS0NcfaeF8fee3JaJjUUBBJh4pbxxA1qbTMTvusVicREDy/0/2iQ/Hb1Of0ZWyWNH/gyhyNvnpRoH1nn8uoQPksP/gSRkbfqNAcuzS/92Z8BhZekH3YrMkc+hah3WaxwLdC3DERZpF1SmWv3d+g+hsnSPqRrdGN6Pq02CLVYtnyvYBQTNC2SFqgvEFOhF/DFDrWWBnDlXQIneHZt0Oy1qCzO7GBWolbOc8cVA8pwVlftYY2nc8+JdvsVPEIVyQogALNTBAk/QiDn7Zc/jotwvQaCw726JWPIXfxtMf6jUoLGwofmrHTs8FK24MpdH9dDJs0d4gKGsLS2ifPIoYAuFJ/Yio5ni0V33NbWIALIXaUU27XyRBSQRl65JwV755Xo0xXrR3I8eAUSlChgFVKaiz0p6/0qC9r7fVVGs4NWCyPL1XwAAAAAA==";
+const FAVICON_DATA = "data:image/webp;base64,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";
 
 let schemaPromise = null;
 
@@ -16,7 +18,7 @@ export default {
         return page("Banco não conectado", `
           <div class="auth-wrap">
             <div class="auth-card">
-              <div class="brand big">BERN <b>NEXUS</b></div>
+              <div class="brand big auth-brand"><img class="brand-logo-img" src="${BRAND_LOGO_DATA}" alt=""><span>BERN <b>NEXUS</b></span></div>
               <h1>Falta conectar o D1</h1>
               <p class="muted">Este Worker precisa do binding <b>DB</b> apontando para seu banco D1.</p>
             </div>
@@ -28,8 +30,9 @@ export default {
 
       if (request.method === "POST") {
         const origin = request.headers.get("origin");
-        if (origin && origin !== url.origin) {
-          return page("Ação bloqueada", messageCard("Origem inválida.", true), 403);
+        const fetchSite = request.headers.get("sec-fetch-site");
+        if (origin !== url.origin || (fetchSite && !["same-origin","none"].includes(fetchSite))) {
+          return page("Ação bloqueada", messageCard("Requisição de origem inválida.", true), 403);
         }
       }
 
@@ -66,7 +69,7 @@ export default {
       if (user.is_blocked) {
         return page("Conta suspensa", `
           <div class="auth-wrap"><div class="auth-card">
-            <div class="brand big">BERN <b>NEXUS</b></div>
+            <div class="brand big auth-brand"><img class="brand-logo-img" src="${BRAND_LOGO_DATA}" alt=""><span>BERN <b>NEXUS</b></span></div>
             <h1>Conta suspensa</h1>
             <p class="muted">Seu acesso foi bloqueado pelo administrador.</p>
             <form method="post" action="/logout"><button class="btn secondary wide">Sair</button></form>
@@ -126,7 +129,7 @@ export default {
       return page("Erro", `
         <div class="auth-wrap">
           <div class="auth-card">
-            <div class="brand big">BERN <b>NEXUS</b></div>
+            <div class="brand big auth-brand"><img class="brand-logo-img" src="${BRAND_LOGO_DATA}" alt=""><span>BERN <b>NEXUS</b></span></div>
             <h1>Algo deu errado</h1>
             <p class="muted">${esc(String(e?.message || e))}</p>
             <a class="btn primary wide linkbtn" href="/">Voltar</a>
@@ -214,11 +217,26 @@ async function ensureSchema(db) {
           description TEXT,
           created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )`,
+        `CREATE TABLE IF NOT EXISTS nexus_rate_limits (
+          bucket TEXT PRIMARY KEY,
+          count INTEGER NOT NULL DEFAULT 0,
+          reset_at INTEGER NOT NULL
+        )`,
+        `CREATE TABLE IF NOT EXISTS nexus_audit_log (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER,
+          action TEXT NOT NULL,
+          subject TEXT,
+          ip_hash TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )`,
         `CREATE INDEX IF NOT EXISTS idx_nexus_missions_status ON nexus_missions(status, created_at)`,
         `CREATE INDEX IF NOT EXISTS idx_nexus_submissions_worker ON nexus_submissions(worker_id, created_at)`,
         `CREATE INDEX IF NOT EXISTS idx_nexus_submissions_mission ON nexus_submissions(mission_id, status)`,
         `CREATE INDEX IF NOT EXISTS idx_nexus_wallet_user ON nexus_wallet_ledger(user_id, created_at)`,
-        `CREATE INDEX IF NOT EXISTS idx_nexus_client_ledger_user ON nexus_client_ledger(user_id, created_at)`
+        `CREATE INDEX IF NOT EXISTS idx_nexus_client_ledger_user ON nexus_client_ledger(user_id, created_at)`,
+        `CREATE INDEX IF NOT EXISTS idx_nexus_audit_created ON nexus_audit_log(created_at)`,
+        `CREATE INDEX IF NOT EXISTS idx_nexus_audit_user ON nexus_audit_log(user_id, created_at)`
       ];
       await db.batch(statements.map(sql => db.prepare(sql)));
 
@@ -577,6 +595,53 @@ function queryUrl(opts, changes={}) {
   return "/?"+p.toString();
 }
 
+async function sha256Hex(value) {
+  const data = new TextEncoder().encode(String(value || ""));
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  return [...new Uint8Array(digest)].map(x => x.toString(16).padStart(2,"0")).join("");
+}
+
+async function requestIpHash(request) {
+  const ip = request.headers.get("CF-Connecting-IP") || request.headers.get("X-Forwarded-For") || "unknown";
+  return (await sha256Hex("bern-nexus:" + ip)).slice(0,32);
+}
+
+async function enforceRateLimit(db, request, scope, subject, limit, windowMs) {
+  const ipHash = await requestIpHash(request);
+  const bucket = await sha256Hex(`${scope}:${ipHash}:${String(subject || "").toLowerCase()}`);
+  const now = Date.now();
+  const row = await db.prepare("SELECT count,reset_at FROM nexus_rate_limits WHERE bucket=? LIMIT 1").bind(bucket).first();
+
+  if (!row) {
+    await db.prepare("INSERT INTO nexus_rate_limits(bucket,count,reset_at) VALUES(?,1,?)")
+      .bind(bucket, now + windowMs).run();
+    return {ok:true, remaining:Math.max(0,limit-1)};
+  }
+
+  if (Number(row.reset_at || 0) <= now) {
+    await db.prepare("UPDATE nexus_rate_limits SET count=1,reset_at=? WHERE bucket=?")
+      .bind(now + windowMs,bucket).run();
+    return {ok:true, remaining:Math.max(0,limit-1)};
+  }
+
+  if (Number(row.count || 0) >= limit) {
+    return {ok:false, retryMs:Number(row.reset_at)-now};
+  }
+
+  await db.prepare("UPDATE nexus_rate_limits SET count=count+1 WHERE bucket=?").bind(bucket).run();
+  return {ok:true, remaining:Math.max(0,limit-Number(row.count||0)-1)};
+}
+
+async function auditSecurity(db, request, userId, action, subject="") {
+  try {
+    const ipHash = await requestIpHash(request);
+    await db.prepare(`
+      INSERT INTO nexus_audit_log(user_id,action,subject,ip_hash)
+      VALUES(?,?,?,?)
+    `).bind(userId || null,clean(action,80),clean(subject,240),ipHash).run();
+  } catch {}
+}
+
 async function handleRegister(request, db) {
   const f = await request.formData();
   const name = clean(f.get("name"),80);
@@ -584,9 +649,15 @@ async function handleRegister(request, db) {
   const password = String(f.get("password")||"");
   const role = ["worker","client","both"].includes(String(f.get("role"))) ? String(f.get("role")) : "worker";
 
+  const rate = await enforceRateLimit(db,request,"register",email,5,30*60*1000);
+  if(!rate.ok) {
+    await auditSecurity(db,request,null,"register_rate_limited",email);
+    return redirect("/register?err="+enc("Muitas tentativas de cadastro. Tente novamente mais tarde."),request);
+  }
+
   if(name.length<2) return redirect("/register?err="+enc("Informe seu nome."),request);
   if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return redirect("/register?err="+enc("E-mail inválido."),request);
-  if(password.length<6) return redirect("/register?err="+enc("A senha precisa ter pelo menos 6 caracteres."),request);
+  if(password.length<8) return redirect("/register?err="+enc("Use uma senha com pelo menos 8 caracteres."),request);
 
   const exists=await db.prepare("SELECT id FROM nexus_users WHERE email=? LIMIT 1").bind(email).first();
   if(exists) return redirect("/login?err="+enc("Esse e-mail já está cadastrado."),request);
@@ -599,6 +670,7 @@ async function handleRegister(request, db) {
   if(!userId) throw new Error("Não foi possível criar o usuário.");
 
   if(role==="client"||role==="both") await ensureClientWallet(db,userId);
+  await auditSecurity(db,request,userId,"register_success",role);
   return redirect("/login?msg="+enc("Conta criada com sucesso. Agora entre com seu e-mail e senha."),request);
 }
 
@@ -606,20 +678,37 @@ async function handleLogin(request, db) {
   const f=await request.formData();
   const email=clean(f.get("email"),160).toLowerCase();
   const password=String(f.get("password")||"");
-  const row=await db.prepare("SELECT * FROM nexus_users WHERE email=? LIMIT 1").bind(email).first();
-  if(!row) return redirect("/login?err="+enc("E-mail ou senha incorretos."),request);
-  if(Number(row.is_blocked||0)===1) return redirect("/login?err="+enc("Esta conta está suspensa."),request);
 
-  const hash=await hashPassword(password,row.password_salt);
-  if(!safeEqual(hash,row.password_hash)) return redirect("/login?err="+enc("E-mail ou senha incorretos."),request);
+  const ipRate=await enforceRateLimit(db,request,"login-ip","all",30,15*60*1000);
+  const emailRate=await enforceRateLimit(db,request,"login-email",email,10,15*60*1000);
+  if(!ipRate.ok||!emailRate.ok) {
+    await auditSecurity(db,request,null,"login_rate_limited",email);
+    return redirect("/login?err="+enc("Muitas tentativas de acesso. Aguarde alguns minutos e tente novamente."),request);
+  }
+
+  const row=await db.prepare("SELECT * FROM nexus_users WHERE email=? LIMIT 1").bind(email).first();
+  const dummySalt="000102030405060708090a0b0c0d0e0f";
+  const candidate=await hashPassword(password,row?.password_salt||dummySalt);
+
+  if(!row||!safeEqual(candidate,String(row.password_hash||""))) {
+    await auditSecurity(db,request,row?.id||null,"login_failed",email);
+    return redirect("/login?err="+enc("E-mail ou senha incorretos."),request);
+  }
+  if(Number(row.is_blocked||0)===1) {
+    await auditSecurity(db,request,row.id,"login_blocked_account",email);
+    return redirect("/login?err="+enc("Esta conta está suspensa."),request);
+  }
 
   const token=await createSession(db,row.id);
+  await auditSecurity(db,request,row.id,"login_success","web");
   return redirect("/?msg="+enc("Login realizado."),request,sessionCookie(token));
 }
 
 async function handleLogout(request, db) {
   const token = getCookie(request, "bn_session");
+  const user = token ? await currentUser(request,db) : null;
   if (token) await db.prepare("DELETE FROM nexus_sessions WHERE token=?").bind(token).run();
+  if(user) await auditSecurity(db,request,user.id,"logout","web");
   return redirect("/login?msg=" + enc("Você saiu da conta."), request, expiredCookie());
 }
 
@@ -820,7 +909,15 @@ async function handleMissionStatus(request, db, user, missionId, status) {
 async function handleAdminClaim(request, db, user) {
   const c=await db.prepare("SELECT COUNT(*) c FROM nexus_users WHERE is_admin=1").first();
   if(Number(c?.c||0)>0) return redirect("/?view=profile&err="+enc("O administrador inicial já foi configurado."),request);
+
+  const first=await db.prepare("SELECT id FROM nexus_users ORDER BY id ASC LIMIT 1").first();
+  if(!first||Number(first.id)!==Number(user.id)) {
+    await auditSecurity(db,request,user.id,"admin_claim_denied","not_first_account");
+    return redirect("/?view=profile&err="+enc("Por segurança, apenas a primeira conta criada pode ativar o administrador inicial."),request);
+  }
+
   await db.prepare("UPDATE nexus_users SET is_admin=1 WHERE id=?").bind(user.id).run();
+  await auditSecurity(db,request,user.id,"admin_claim_success","initial_admin");
   return redirect("/?view=admin&msg="+enc("Painel administrativo ativado para sua conta."),request);
 }
 
@@ -832,6 +929,7 @@ async function handleAdminUserAction(request, db, user, targetId, action) {
   if(action==="block"||action==="unblock") {
     if(Number(target.is_admin||0)===1) return redirect("/?view=admin&err="+enc("Não é permitido bloquear um administrador."),request);
     await db.prepare("UPDATE nexus_users SET is_blocked=? WHERE id=?").bind(action==="block"?1:0,targetId).run();
+    await auditSecurity(db,request,user.id,action==="block"?"admin_block_user":"admin_unblock_user",String(targetId));
     return redirect("/?view=admin&msg="+enc(action==="block"?"Usuário bloqueado.":"Usuário desbloqueado."),request);
   }
 
@@ -848,6 +946,7 @@ async function handleAdminUserAction(request, db, user, targetId, action) {
         VALUES(?,?,0,'admin_credit',?,?)
       `).bind(targetId,amount,`credit:${targetId}:${Date.now()}:${randomHex(3)}`,"Crédito interno adicionado pelo administrador")
     ]);
+    await auditSecurity(db,request,user.id,"admin_credit",`${targetId}:${amount}`);
     return redirect("/?view=admin&msg="+enc(`${brl(amount)} adicionados ao saldo interno de ${target.name}.`),request);
   }
 
@@ -859,6 +958,7 @@ async function handleAdminMissionClose(request, db, user, missionId) {
   const m=await db.prepare("SELECT client_id FROM nexus_missions WHERE id=? LIMIT 1").bind(missionId).first();
   if(!m) return redirect("/?view=admin&err="+enc("Missão não encontrada."),request);
   await closeMissionFunds(db,missionId,Number(m.client_id),"Missão encerrada pelo administrador");
+  await auditSecurity(db,request,user.id,"admin_close_mission",String(missionId));
   return redirect("/?view=admin&msg="+enc("Missão encerrada pelo administrador."),request);
 }
 
@@ -903,7 +1003,7 @@ async function renderDashboard(request, db, user, url) {
   const body=`
     <div class="app">
       <header><div class="toprow">
-        <a class="brand" href="/">BERN <b>NEXUS</b></a>
+        <a class="brand brand-with-logo" href="/"><img class="brand-logo-img" src="${BRAND_LOGO_DATA}" alt=""><span>BERN <b>NEXUS</b></span></a>
         <div class="head-user">
           <span class="head-name">${esc(user.name||"Usuário")}</span>
           ${user.is_admin?`<span class="pill adminpill">ADMIN</span>`:""}
@@ -1347,15 +1447,7 @@ function signedBrl(v) {
 }
 
 function renderLanding() {
-  const lion = `<svg class="lion-logo" viewBox="0 0 64 64" aria-hidden="true">
-    <circle cx="32" cy="32" r="25" fill="none" stroke="currentColor" stroke-width="4"/>
-    <circle cx="18" cy="17" r="7" fill="currentColor"/>
-    <circle cx="46" cy="17" r="7" fill="currentColor"/>
-    <path d="M20 25c4-7 20-7 24 0v13c0 9-6 16-12 16s-12-7-12-16V25Z" fill="currentColor"/>
-    <circle cx="27" cy="33" r="2.2" fill="#fff"/>
-    <circle cx="37" cy="33" r="2.2" fill="#fff"/>
-    <path d="M28 42c2.5 2 5.5 2 8 0" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/>
-  </svg>`;
+  const lion = `<img class="lion-logo-img" src="${BRAND_LOGO_DATA}" alt="Leão Bern Nexus">`;
 
   return page("BERN NEXUS — Missões para renda extra e tarefas para negócios", `
     <div class="lp lp-gold">
@@ -1622,7 +1714,7 @@ function renderAuth(mode, url) {
   return page("BERN NEXUS", `
     <div class="auth-wrap">
       <div class="auth-card">
-        <div class="brand big">BERN <b>NEXUS</b></div>
+        <div class="brand big auth-brand"><img class="brand-logo-img" src="${BRAND_LOGO_DATA}" alt=""><span>BERN <b>NEXUS</b></span></div>
         ${msg ? `<div class="flash ok">${esc(msg)}</div>` : ""}
         ${err ? `<div class="flash err">${esc(err)}</div>` : ""}
 
@@ -1637,7 +1729,7 @@ function renderAuth(mode, url) {
           <label>E-mail</label>
           <input class="field" name="email" type="email" required>
           <label>Senha</label>
-          <input class="field" name="password" type="password" required minlength="6">
+          <input class="field" name="password" type="password" required minlength="8">
           ${register ? `
             <label>Como quer usar o Nexus?</label>
             <select class="field" name="role">
@@ -1748,25 +1840,32 @@ function safeEqual(a,b) {
 }
 
 function page(title, body, status=200) {
+  const nonce=randomHex(16);
   return new Response(`<!doctype html>
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#ffffff">
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23ffffff'/%3E%3Ccircle cx='32' cy='32' r='25' fill='none' stroke='%23B8860B' stroke-width='4'/%3E%3Ccircle cx='18' cy='17' r='7' fill='%23B8860B'/%3E%3Ccircle cx='46' cy='17' r='7' fill='%23B8860B'/%3E%3Cpath d='M20 25c4-7 20-7 24 0v13c0 9-6 16-12 16s-12-7-12-16V25Z' fill='%23B8860B'/%3E%3Ccircle cx='27' cy='33' r='2' fill='white'/%3E%3Ccircle cx='37' cy='33' r='2' fill='white'/%3E%3Cpath d='M28 42c2.5 2 5.5 2 8 0' fill='none' stroke='white' stroke-width='2.5' stroke-linecap='round'/%3E%3C/svg%3E">
+<meta name="theme-color" content="#FFFFFF">
+<link rel="icon" type="image/webp" href="${FAVICON_DATA}">
 <title>${esc(title)}</title>
-<style>
+<style nonce="${nonce}">
+
 :root{
-  --bg:#07111f;
-  --panel:#0d1b2a;
-  --panel-2:#0a1826;
-  --line:#20384e;
-  --line-2:#294159;
-  --text:#edf5ff;
-  --muted:#91a6b9;
-  --accent:#50e3a4;
-  --accent-dark:#062117;
+  --bg:#FFFFFF;
+  --panel:#FFFFFF;
+  --panel-2:#F7F6F1;
+  --line:rgba(187,185,182,.58);
+  --line-2:#BBB9B6;
+  --text:#0A0A0A;
+  --muted:#716E69;
+  --accent:#BC913C;
+  --accent-light:#E0B55A;
+  --accent-dark:#86672A;
+  --white:#FFFFFF;
+  --offwhite:#F7F6F1;
+  --lion-gray:#BBB9B6;
+  --black:#0A0A0A;
 }
 *{box-sizing:border-box}
 html{background:var(--bg)}
@@ -2136,16 +2235,16 @@ textarea.field{min-height:104px;resize:vertical}
   display:grid;
   place-items:center;
   padding:24px 16px;
-  background:radial-gradient(circle at 50% 0%,rgba(214,170,47,.14),transparent 25rem),#fff;
+  background:radial-gradient(circle at 50% 0%,rgba(224,181,90,.18),transparent 25rem),#FFFFFF;
 }
 .auth-card{
   width:min(430px,100%);
-  background:#fff;
-  color:#17130a;
-  border:1px solid #e5dbc0;
+  background:#FFFFFF;
+  color:#0A0A0A;
+  border:1px solid #BBB9B6;
   border-radius:22px;
   padding:22px;
-  box-shadow:0 24px 60px rgba(75,55,8,.10);
+  box-shadow:0 24px 60px rgba(10,10,10,.08);
 }
 .auth-card .muted{color:#756e61}
 .auth-card .field{background:#fff;border-color:#d8cfb7;color:#17130a}
@@ -2215,7 +2314,47 @@ textarea.field{min-height:104px;resize:vertical}
 .form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.final-cost{margin:14px 0;background:#123329;border:1px solid #28694f;color:#9af2c9;border-radius:14px;padding:14px;font-size:17px;font-weight:900}
 .contractor-line{font-size:11px;color:#849caf;margin:10px 0}.cost-line{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-top:1px solid #1c3348;font-size:12px}.cost-line b{color:#bcd0e0}.topgap{margin-top:8px}
 .profile-head{margin-bottom:14px}.initials{font-weight:950;color:var(--accent)}.profile-badges{display:flex;gap:6px;margin-top:7px}.reputation p{margin:7px 0}.history{margin-top:10px}.history h3{margin-top:0}.history-row{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-top:1px solid #1c3348}.history-row:first-of-type{border-top:0}.history-row small{display:block;margin-top:3px}.history-row strong.positive{color:var(--accent)}.history-row strong.negative{color:#ff8fa9}.ledger-values{text-align:right;font-size:11px;color:#a7bbcb}.ledger-values span{display:block}.admin-link{max-width:260px}.logoutform{margin-top:16px}
-.adminpill{border-color:#66552d;color:#ffd776}.admin-table-wrap{overflow:auto;border:1px solid var(--line);border-radius:15px;max-width:100%}.admin-table{width:100%;border-collapse:collapse;min-width:760px;background:var(--panel)}.admin-table th,.admin-table td{text-align:left;padding:11px;border-bottom:1px solid #1d3449;font-size:12px;vertical-align:top}.admin-table th{color:#8fa5b8;background:#091725}.admin-table td small{display:block;margin-top:3px}.inline-form{display:flex;gap:5px;margin:3px 0}.mini-input{width:85px;background:#081521;border:1px solid var(--line-2);color:white;border-radius:8px;padding:6px}.mini-btn{border:1px solid #31506a;background:#132a3e;color:#dceaf6;border-radius:8px;padding:6px 8px;cursor:pointer;white-space:nowrap}.danger-mini{border-color:#703449;background:#3a1d27;color:#ffd4df}
+.adminpill{border-color:#66552d;color:#ffd776}
+
+/* === IDENTIDADE BERN NEXUS: BRANCO / DOURADO / PRETO === */
+body{background:#F7F6F1;color:#0A0A0A}
+.app{background:#FFFFFF;border-color:rgba(187,185,182,.55);box-shadow:0 20px 60px rgba(10,10,10,.06)}
+.app>header,header{background:#0A0A0A;border-bottom-color:#282828}
+.brand{color:#FFFFFF}.brand b{color:#BC913C}
+.brand-with-logo,.auth-brand{display:inline-flex;align-items:center;gap:10px;text-decoration:none}
+.brand-logo-img{width:34px;height:34px;object-fit:cover;border-radius:9px;border:1px solid #86672A;background:#0A0A0A}
+.auth-brand .brand-logo-img{width:44px;height:44px;border-radius:11px}
+.head-name{color:#BBB9B6}
+.pill{border-color:#86672A;color:#E0B55A;background:rgba(188,145,60,.08)}
+main{background:#FFFFFF}.hero h1{color:#0A0A0A}.muted,.small,small{color:#716E69}
+.nav{background:#0A0A0A;border-color:#282828}.nav a{color:#BBB9B6}.nav a:hover{color:#FFFFFF}.nav a.active{color:#0A0A0A;background:#BC913C}.nav a.active strong{color:#0A0A0A}
+.goal{background:linear-gradient(145deg,#FFFFFF,#F7F6F1);border-color:#BC913C;box-shadow:0 14px 32px rgba(188,145,60,.10)}
+.goal small,.goaltext,.goalhint{color:#716E69}.money{color:#0A0A0A}.bar{background:#E8E6E1}.bar i{background:linear-gradient(90deg,#BC913C,#E0B55A)}
+.goal-badge{border-color:#BC913C!important;background:rgba(188,145,60,.10)!important;color:#86672A!important}.goal-percent{color:#86672A!important}
+.notice{background:#F7F6F1;color:#5D5545;border-color:#E0B55A}
+.flash.ok{background:#FFF9E9;color:#5A430E;border-color:#BC913C}.flash.err{background:#FFF5F5;color:#7B2020;border-color:#D7A3A3}
+.card,.panel,.metric-card,.summary-box,.filter-panel,.mission-row,.history{background:#FFFFFF;border-color:rgba(187,185,182,.60);box-shadow:0 10px 28px rgba(10,10,10,.045)}
+.card h3,.panel h3,.section-title h2{color:#0A0A0A}.card p,.contractor-line,.stats,.row-meta,.toolbar,.toolbar-note{color:#716E69}.cardimg{background:#F7F6F1}
+.tag{background:#0A0A0A;color:#E0B55A}.reward{color:#86672A}
+.instruction,.answer{background:#F7F6F1;border-color:#DDDAD4;color:#4D4A45}
+.status.started{color:#86672A}.status.submitted{color:#9B7017}.status.approved{color:#6D541C}.status.rejected{color:#9C3D3D}
+.btn.primary,.primary{background:#BC913C;color:#0A0A0A}.btn.primary:hover,.primary:hover{background:#E0B55A}.btn.primary:active,.primary:active{background:#86672A;color:#FFFFFF}
+.btn.secondary,.secondary{background:#FFFFFF;color:#0A0A0A;border-color:#BBB9B6}.btn.secondary:hover,.secondary:hover{border-color:#BC913C;color:#86672A}
+.danger{background:#0A0A0A;color:#FFFFFF;border-color:#0A0A0A}
+.field{background:#FFFFFF;color:#0A0A0A;border-color:#BBB9B6}.field::placeholder{color:#9D9A96}.field:focus{border-color:#BC913C;box-shadow:0 0 0 3px rgba(188,145,60,.14)}label{color:#5E5A54}
+.metric-card b,.summary-box b{color:#0A0A0A}
+.hero-mini-card{background:#FFFFFF!important;border-color:rgba(187,185,182,.60)!important;box-shadow:0 10px 28px rgba(10,10,10,.04)!important}.hero-mini-card b{color:#0A0A0A!important}
+.hero-kicker{background:#F7F6F1!important;border-color:#E0B55A!important;color:#86672A!important}
+.filter-panel-hero{background:#F7F6F1!important;box-shadow:none!important}.filter-panel-head b{color:#0A0A0A}.filter-summary-box{background:#FFFFFF;border-color:#BBB9B6}.filter-summary-box b{color:#0A0A0A}
+.view-switch{border-color:#BBB9B6}.view-switch a{color:#716E69}.view-switch a.active{background:#0A0A0A;color:#E0B55A}
+.final-cost{background:#FFF8E6;border-color:#BC913C;color:#5B420D}.cost-line{border-color:#E5E2DC}.cost-line b{color:#0A0A0A}
+.avatar{background:#0A0A0A;color:#E0B55A}.initials{color:#E0B55A}
+.history-row{border-color:#E5E2DC}.history-row strong.positive{color:#86672A}.history-row strong.negative{color:#9C3D3D}.ledger-values{color:#716E69}
+.adminpill{border-color:#BC913C!important;color:#E0B55A!important}.admin-table-wrap{border-color:#BBB9B6}.admin-table{background:#FFFFFF}.admin-table th{background:#0A0A0A;color:#E0B55A}.admin-table td{color:#0A0A0A;border-bottom-color:#E5E2DC}
+.mini-input{background:#FFFFFF;color:#0A0A0A;border-color:#BBB9B6}.mini-btn{background:#F7F6F1;color:#0A0A0A;border-color:#BBB9B6}.mini-btn:hover{border-color:#BC913C}.danger-mini{background:#0A0A0A;color:#FFFFFF;border-color:#0A0A0A}
+.empty{color:#716E69;border-color:#BBB9B6;background:#F7F6F1}
+.status-tabs a{color:#716E69;border-color:#BBB9B6;background:#FFFFFF}.status-tabs a.active{background:#0A0A0A;color:#E0B55A;border-color:#0A0A0A}.pagination>span{color:#716E69}
+.admin-table-wrap{overflow:auto;border:1px solid var(--line);border-radius:15px;max-width:100%}.admin-table{width:100%;border-collapse:collapse;min-width:760px;background:var(--panel)}.admin-table th,.admin-table td{text-align:left;padding:11px;border-bottom:1px solid #1d3449;font-size:12px;vertical-align:top}.admin-table th{color:#8fa5b8;background:#091725}.admin-table td small{display:block;margin-top:3px}.inline-form{display:flex;gap:5px;margin:3px 0}.mini-input{width:85px;background:#081521;border:1px solid var(--line-2);color:white;border-radius:8px;padding:6px}.mini-btn{border:1px solid #31506a;background:#132a3e;color:#dceaf6;border-radius:8px;padding:6px 8px;cursor:pointer;white-space:nowrap}.danger-mini{border-color:#703449;background:#3a1d27;color:#ffd4df}
 
 
 @media(max-width:900px){
@@ -2240,6 +2379,27 @@ textarea.field{min-height:104px;resize:vertical}
   .lp-footer{padding:24px 16px 40px;flex-direction:column;align-items:flex-start}
 }
 
+
+
+/* === LP oficial #BC913C / #E0B55A / #86672A / #FFFFFF / #F7F6F1 / #BBB9B6 / #0A0A0A === */
+.lp-gold{--gold:#BC913C;--gold-2:#E0B55A;--gold-3:#E0B55A;--ink:#0A0A0A;--muted:#716E69;--soft:#F7F6F1;--line-gold:#BBB9B6;background:#FFFFFF;color:#0A0A0A}
+.lp-header{background:rgba(255,255,255,.95);border-bottom-color:#E3E0DA}.lp-logo{color:#0A0A0A}.lp-logo b{color:#BC913C}
+.lion-logo-img{width:40px;height:40px;object-fit:cover;border-radius:10px;background:#0A0A0A;border:1px solid #86672A}.lp-lion-big .lion-logo-img{width:82px;height:82px;border-radius:18px}
+.lp-nav a{color:#4D4A45}.lp-nav-cta{background:#0A0A0A!important;color:#FFFFFF!important}
+.lp-hero{background:radial-gradient(circle at 50% 5%,rgba(224,181,90,.18),transparent 28rem),linear-gradient(180deg,#FFFFFF 0%,#F7F6F1 100%);border-bottom-color:#E3E0DA}
+.lp-hero-badge{border-color:#E0B55A;background:#FFF9E9;color:#86672A}.lp-hero h1{color:#0A0A0A}.lp-hero h1 span{color:#BC913C}.lp-hero-sub{color:#716E69}
+.lp-main-cta{background:linear-gradient(135deg,#E0B55A,#BC913C);color:#0A0A0A;box-shadow:0 16px 38px rgba(188,145,60,.20)}.lp-main-cta small{color:#49370F}
+.lp-business-cta{background:#FFFFFF;color:#0A0A0A;border-color:#BC913C}.lp-business-cta small{color:#716E69}.lp-main-cta-icon{background:rgba(255,255,255,.35)}.lp-business-cta-icon{background:#F7F6F1;color:#86672A}
+.lp-proofline,.lp-demo-caption{color:#716E69}.lp-pulse{background:#BC913C;box-shadow:0 0 0 5px rgba(188,145,60,.14)}
+.lp-demo-card{border-color:#BBB9B6;background:#FFFFFF;box-shadow:0 20px 50px rgba(10,10,10,.06)}.lp-demo-tag{background:#0A0A0A;color:#E0B55A}.lp-demo-card p,.lp-demo-meta,.lp-demo-pay small,.lp-demo-pay span{color:#716E69}.lp-demo-pay strong{color:#86672A}.lp-fake-button{background:#0A0A0A;color:#FFFFFF}
+.lp-kicker{color:#86672A}.lp-choice-card{border-color:#DAD7D2;background:#FFFFFF}.lp-choice-worker{background:linear-gradient(180deg,#FFFFFF,#F7F6F1)}.lp-choice-business{background:#0A0A0A;color:#FFFFFF;border-color:#0A0A0A}
+.lp-choice-icon{background:#F7F6F1;color:#BC913C}.lp-choice-business .lp-choice-icon{background:#1B1B1B;color:#E0B55A}.lp-choice-card p{color:#716E69}.lp-choice-business p{color:#BBB9B6}.lp-choice-card li:before{color:#BC913C}.lp-choice-business li:before{color:#E0B55A}.lp-choice-card a{color:#86672A}.lp-choice-business a{color:#E0B55A}
+.lp-how,.lp-real-use,.lp-faq{border-top-color:#E3E0DA}.lp-flow-step,.lp-use-grid>div{border-color:#DAD7D2;background:#FFFFFF}.lp-flow-step>strong{background:#F7F6F1;color:#86672A}.lp-flow-step p,.lp-section-head p,.lp-business-copy p{color:#716E69}.lp-flow-arrow{color:#BC913C}
+.lp-inline-cta{background:#F7F6F1;border-color:#E0B55A}.lp-inline-cta a{background:#0A0A0A;color:#FFFFFF}
+.lp-business-bigcta{background:#BC913C;color:#0A0A0A}.lp-business-example{background:#0A0A0A}.lp-biz-label{color:#E0B55A;border-color:#86672A}.lp-biz-result>div{border-color:#33312D}.lp-biz-result small,.lp-business-example p{color:#BBB9B6}.lp-biz-result b{color:#E0B55A}
+.lp-use-grid span{color:#86672A}.lp-use-grid p,.lp-faq details p{color:#716E69}.lp-faq details{border-bottom-color:#E3E0DA}
+.lp-final{background:#F7F6F1;border-color:#E0B55A}.lp-footer{color:#716E69}.lp-footer>a:last-child{color:#86672A}
+.lp-mobile-bar{background:rgba(255,255,255,.97);border-color:#E0B55A}.lp-mobile-bar a:first-child{background:#BC913C;color:#0A0A0A}.lp-mobile-bar a:last-child{background:#0A0A0A;color:#FFFFFF}
 
 @media(max-width:960px){
   .lp-flow{grid-template-columns:1fr 1fr}.lp-flow-arrow{display:none}
@@ -2378,7 +2538,8 @@ textarea.field{min-height:104px;resize:vertical}
 </head>
 <body>
 ${body}
-<script>
+<script nonce="${nonce}">
+
 (function(){
   const forms=document.querySelectorAll(".image-form");
   forms.forEach(form=>{
@@ -2446,8 +2607,13 @@ ${body}
       "content-type":"text/html; charset=UTF-8",
       "cache-control":"no-store",
       "x-content-type-options":"nosniff",
-      "referrer-policy":"same-origin",
-      "content-security-policy":"default-src 'self'; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+      "x-frame-options":"DENY",
+      "referrer-policy":"strict-origin-when-cross-origin",
+      "permissions-policy":"camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+      "strict-transport-security":"max-age=31536000; includeSubDomains",
+      "cross-origin-opener-policy":"same-origin",
+      "cross-origin-resource-policy":"same-origin",
+      "content-security-policy":`default-src 'none'; img-src 'self' data:; style-src 'nonce-${nonce}' 'unsafe-inline'; script-src 'nonce-${nonce}'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'; upgrade-insecure-requests`
     }
   });
 }
