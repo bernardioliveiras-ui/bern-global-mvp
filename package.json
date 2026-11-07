@@ -1,12 +1,15 @@
 {
-  "name": "bern-nexus-worker",
-  "version": "0.1.1",
+  "name": "bern-nexus",
+  "version": "0.2.0",
   "private": true,
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy"
+    "db:create": "wrangler d1 create bern-nexus-db",
+    "db:migrate:local": "wrangler d1 migrations apply bern-nexus-db --local",
+    "db:migrate": "wrangler d1 migrations apply bern-nexus-db --remote",
+    "deploy": "wrangler d1 migrations apply bern-nexus-db --remote && wrangler deploy"
   },
   "devDependencies": {
-    "wrangler": "^4.102.0"
+    "wrangler": "^4.158.0"
   }
 }
