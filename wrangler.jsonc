@@ -1,0 +1,7 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "bern-nexus",
+  "main": "./bern-nexus-worker.js",
+  "compatibility_date": "2026-11-06",
+  "workers_dev": true
+}
