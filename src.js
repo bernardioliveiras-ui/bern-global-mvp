@@ -1450,255 +1450,234 @@ function renderLanding() {
   const lion = `<img class="lion-logo-img" src="${BRAND_LOGO_DATA}" alt="Leão Bern Nexus">`;
 
   return page("BERN NEXUS — Missões para renda extra e tarefas para negócios", `
-    <div class="lp lp-gold">
-      <header class="lp-header">
-        <a class="lp-logo" href="/">
+    <div class="lp-cinema">
+      <header class="cinema-header">
+        <a class="cinema-brand" href="/">
           ${lion}
           <span>BERN <b>NEXUS</b></span>
         </a>
 
-        <nav class="lp-nav">
-          <a href="#como-funciona">Como funciona</a>
-          <a href="#empresas">Para negócios</a>
-          <a href="#duvidas">Dúvidas</a>
+        <nav class="cinema-nav">
+          <a href="#renda">Renda extra</a>
+          <a href="#negocio">Para negócios</a>
+          <a href="#como">Como funciona</a>
           <a href="/login">Entrar</a>
-          <a class="lp-nav-cta" href="/register?role=worker">Começar agora</a>
+          <a class="cinema-nav-cta" href="/register?role=worker">Começar agora</a>
         </nav>
       </header>
 
-      <main>
-        <section class="lp-hero">
-          <div class="lp-hero-inner">
-            <div class="lp-hero-badge">MISSÕES RÁPIDAS · RECOMPENSA DEFINIDA ANTES DE COMEÇAR</div>
-
-            <h1>Seu tempo pode virar <span>renda extra.</span></h1>
-
-            <p class="lp-hero-sub">
-              Encontre pequenas missões, escolha o que faz sentido para você e acompanhe
-              suas recompensas em um único lugar.
-            </p>
-
-            <div class="lp-hero-actions">
-              <a class="lp-main-cta" href="/register?role=worker">
-                <span class="lp-main-cta-icon">↗</span>
-                <span>
-                  <strong>Quero começar missões agora</strong>
-                  <small>Criar meu perfil de trabalhador</small>
-                </span>
-              </a>
-
-              <a class="lp-business-cta" href="/register?role=client">
-                <span class="lp-business-cta-icon">＋</span>
-                <span>
-                  <strong>Preciso de pessoas para meu negócio</strong>
-                  <small>Publicar pesquisas, testes e tarefas</small>
-                </span>
-              </a>
-            </div>
-
-            <div class="lp-proofline">
-              <span>✓ Cadastro simples</span>
-              <span>✓ Recompensas a partir de R$ 2,50</span>
-              <span>✓ Você escolhe quais missões quer fazer</span>
-            </div>
-
-            <div class="lp-demo-wrap">
-              <div class="lp-demo-caption">
-                <span class="lp-pulse"></span>
-                Exemplo de missão no Bern Nexus
-              </div>
-
-              <div class="lp-demo-card">
-                <div class="lp-demo-left">
-                  <span class="lp-demo-tag">TESTE</span>
-                  <h3>Teste uma landing page e diga o que ficou confuso</h3>
-                  <p>Abra a página, navegue por alguns minutos e responda três perguntas rápidas.</p>
-                  <div class="lp-demo-meta">
-                    <span>⏱ 8 min</span>
-                    <span>🎯 12 vagas</span>
-                    <span>📅 2 dias</span>
-                  </div>
-                </div>
-
-                <div class="lp-demo-pay">
-                  <small>Você recebe</small>
-                  <strong>R$ 5,00</strong>
-                  <span>se o trabalho for aprovado</span>
-                  <div class="lp-fake-button">Fazer missão</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section class="lp-choice">
-          <div class="lp-choice-intro">
-            <span class="lp-kicker">ESCOLHA SEU LADO</span>
-            <h2>Você quer fazer pequenas missões ou precisa de pessoas para executar tarefas?</h2>
+      <main class="cinema-main">
+        <section id="renda" class="cinema-screen cinema-screen-dark cinema-hero">
+          <div class="cinema-watermark">
+            <img src="${BRAND_LOGO_DATA}" alt="">
           </div>
 
-          <div class="lp-choice-grid">
-            <article class="lp-choice-card lp-choice-worker">
-              <div class="lp-choice-number">01</div>
-              <div class="lp-choice-icon">↗</div>
-              <h3>Quero uma renda extra</h3>
-              <p>Entre no painel, veja as missões disponíveis, escolha uma tarefa e envie seu trabalho.</p>
-
-              <ul>
-                <li>Veja o valor antes de começar</li>
-                <li>Escolha as tarefas que preferir</li>
-                <li>Acompanhe enviados, aprovados e saldo</li>
-              </ul>
-
-              <a href="/register?role=worker">Criar conta e ver missões →</a>
-            </article>
-
-            <article id="empresas" class="lp-choice-card lp-choice-business">
-              <div class="lp-choice-number">02</div>
-              <div class="lp-choice-icon">＋</div>
-              <h3>Quero ajuda para meu negócio</h3>
-              <p>Precisa de opiniões, pesquisas ou testes? Transforme isso em uma tarefa e receba respostas de pessoas reais.</p>
-
-              <ul>
-                <li>Defina quantas pessoas você precisa</li>
-                <li>Escolha a recompensa e o prazo</li>
-                <li>Aprove ou rejeite cada trabalho recebido</li>
-              </ul>
-
-              <a href="/register?role=client">Publicar minha primeira tarefa →</a>
-            </article>
-          </div>
-        </section>
-
-        <section id="como-funciona" class="lp-how">
-          <div class="lp-section-head">
-            <span class="lp-kicker">PARA QUEM QUER GANHAR</span>
-            <h2>Você entra. Escolhe. Faz. Acompanha.</h2>
-            <p>Sem complicação e sem precisar disputar projeto de freelancer.</p>
-          </div>
-
-          <div class="lp-flow">
-            <div class="lp-flow-step">
-              <strong>1</strong>
-              <div><h3>Crie sua conta</h3><p>Escolha o perfil de trabalhador e acesse o painel de missões.</p></div>
-            </div>
-            <div class="lp-flow-arrow">→</div>
-            <div class="lp-flow-step">
-              <strong>2</strong>
-              <div><h3>Escolha uma missão</h3><p>Veja recompensa, prazo, vagas e instruções antes de aceitar.</p></div>
-            </div>
-            <div class="lp-flow-arrow">→</div>
-            <div class="lp-flow-step">
-              <strong>3</strong>
-              <div><h3>Envie seu trabalho</h3><p>Responda ou envie a comprovação solicitada pelo contratante.</p></div>
-            </div>
-            <div class="lp-flow-arrow">→</div>
-            <div class="lp-flow-step">
-              <strong>4</strong>
-              <div><h3>Acompanhe a carteira</h3><p>Veja o que está em análise, aprovado e acumulado no seu painel.</p></div>
-            </div>
-          </div>
-
-          <div class="lp-inline-cta">
-            <div>
-              <b>Tem alguns minutos livres?</b>
-              <span>Veja se existe uma missão que combina com você.</span>
-            </div>
-            <a href="/register?role=worker">Quero começar agora</a>
-          </div>
-        </section>
-
-        <section class="lp-business-section">
-          <div class="lp-business-copy">
-            <span class="lp-kicker">PARA QUEM TEM UM NEGÓCIO</span>
-            <h2>Precisa de 10, 50 ou 100 pessoas olhando para um problema?</h2>
+          <div class="cinema-hero-copy reveal">
+            <span class="cinema-eyebrow">MISSÕES REAIS · RECOMPENSA CLARA</span>
+            <h1>Seu tempo pode virar <em>renda extra.</em></h1>
             <p>
-              Em vez de contratar uma agência para cada pequena demanda, publique uma tarefa:
-              teste uma página, faça um levantamento, compare ideias ou colete opiniões estruturadas.
+              Entre no Bern Nexus, escolha uma missão disponível e veja exatamente
+              quanto você pode receber antes de começar.
             </p>
-            <a class="lp-business-bigcta" href="/register?role=client">Publicar uma tarefa agora →</a>
-          </div>
 
-          <div class="lp-business-example">
-            <div class="lp-biz-label">Exemplo</div>
-            <h3>“Quero saber se minha página está clara antes de anunciar.”</h3>
-            <div class="lp-biz-result">
-              <div><small>Pessoas</small><b>20</b></div>
-              <div><small>Recompensa</small><b>R$ 5</b></div>
-              <div><small>Resultado</small><b>20 feedbacks</b></div>
+            <div class="cinema-actions">
+              <a class="cinema-btn cinema-btn-gold" href="/register?role=worker">
+                <strong>Começar missões agora</strong>
+                <span>Criar perfil de trabalhador</span>
+              </a>
+              <a class="cinema-btn cinema-btn-ghost" href="#como">
+                <strong>Ver como funciona</strong>
+                <span>Entenda em poucos segundos</span>
+              </a>
             </div>
-            <p>Você define o objetivo. As pessoas executam. Você aprova o que recebeu.</p>
+
+            <div class="cinema-trust">
+              <span>✓ Recompensas a partir de R$ 2,50</span>
+              <span>✓ Você escolhe o que quer fazer</span>
+              <span>✓ Sem promessa de renda garantida</span>
+            </div>
+          </div>
+
+          <div class="float-stack reveal">
+            <article class="float-card float-card-main">
+              <div class="float-card-head">
+                <span class="float-tag">TESTE</span>
+                <strong>R$ 5,00</strong>
+              </div>
+              <h3>Teste uma landing page</h3>
+              <p>Veja a página, responda três perguntas e envie sua percepção.</p>
+              <div class="float-meta">
+                <span>⏱ 8 min</span>
+                <span>🎯 12 vagas</span>
+                <span>📅 2 dias</span>
+              </div>
+              <div class="float-action">Fazer missão</div>
+            </article>
+
+            <article class="float-card float-card-mini float-card-top">
+              <small>Ganhos aprovados hoje</small>
+              <b>R$ 18,50</b>
+              <div class="float-progress"><i style="width:37%"></i></div>
+            </article>
+
+            <article class="float-card float-card-mini float-card-bottom">
+              <small>Missões disponíveis</small>
+              <b>7 agora</b>
+              <span>Escolha a que faz sentido para você</span>
+            </article>
+          </div>
+
+          <a class="cinema-scroll" href="#negocio">Role para descobrir ↓</a>
+        </section>
+
+        <section id="negocio" class="cinema-screen cinema-screen-light cinema-business">
+          <div class="cinema-business-copy reveal">
+            <span class="cinema-eyebrow cinema-eyebrow-dark">PARA QUEM TEM UM NEGÓCIO</span>
+            <h2>Coloque pessoas reais para resolver pequenas tarefas.</h2>
+            <p>
+              Pesquisa, teste, opinião ou levantamento: publique o que precisa,
+              escolha quantas pessoas quer e acompanhe cada entrega no painel.
+            </p>
+
+            <div class="cinema-actions">
+              <a class="cinema-btn cinema-btn-black" href="/register?role=client">
+                <strong>Publicar uma tarefa</strong>
+                <span>Criar perfil de contratante</span>
+              </a>
+              <a class="cinema-btn cinema-btn-outline" href="#como">
+                <strong>Ver o fluxo</strong>
+                <span>Do pedido à aprovação</span>
+              </a>
+            </div>
+          </div>
+
+          <div class="business-stage reveal">
+            <article class="biz-float biz-float-main">
+              <div class="biz-title-row">
+                <div>
+                  <small>Sua missão</small>
+                  <h3>Quero 20 opiniões sobre minha página</h3>
+                </div>
+                <span>ABERTA</span>
+              </div>
+
+              <div class="biz-metrics">
+                <div><small>Pessoas</small><b>20</b></div>
+                <div><small>Recompensa</small><b>R$ 5</b></div>
+                <div><small>Prazo</small><b>3 dias</b></div>
+              </div>
+
+              <div class="biz-status">
+                <span>13 trabalhos recebidos</span>
+                <div class="biz-progress"><i style="width:65%"></i></div>
+              </div>
+            </article>
+
+            <article class="biz-float biz-float-small biz-float-a">
+              <small>Aguardando aprovação</small>
+              <b>4 trabalhos</b>
+            </article>
+
+            <article class="biz-float biz-float-small biz-float-b">
+              <small>Feedback recebido</small>
+              <b>“O botão principal ficou fácil de achar.”</b>
+            </article>
           </div>
         </section>
 
-        <section class="lp-real-use">
-          <div class="lp-section-head">
-            <span class="lp-kicker">O QUE PODE VIRAR MISSÃO?</span>
-            <h2>Tarefas pequenas que precisam de atenção humana.</h2>
+        <section id="como" class="cinema-screen cinema-screen-black cinema-how">
+          <div class="cinema-section-title reveal">
+            <span class="cinema-eyebrow">SEM COMPLICAÇÃO</span>
+            <h2>Quatro passos. Um fluxo simples.</h2>
           </div>
 
-          <div class="lp-use-grid">
-            <div><span>01</span><h3>Pesquisa</h3><p>Levantar informações públicas, preços, contatos ou referências.</p></div>
-            <div><span>02</span><h3>Teste</h3><p>Avaliar uma página, fluxo, anúncio ou experiência e enviar feedback privado.</p></div>
-            <div><span>03</span><h3>Opinião</h3><p>Comparar duas ideias, nomes, criativos ou propostas e explicar a escolha.</p></div>
-            <div><span>04</span><h3>Levantamento</h3><p>Organizar pequenas listas ou coletar informações seguindo instruções claras.</p></div>
+          <div class="cinema-steps">
+            <article class="cinema-step reveal">
+              <span>01</span>
+              <h3>Entre</h3>
+              <p>Crie sua conta e escolha se quer realizar missões ou publicar tarefas.</p>
+            </article>
+            <article class="cinema-step reveal">
+              <span>02</span>
+              <h3>Escolha</h3>
+              <p>Trabalhadores escolhem missões. Contratantes definem objetivo, vagas e prazo.</p>
+            </article>
+            <article class="cinema-step reveal">
+              <span>03</span>
+              <h3>Execute</h3>
+              <p>A tarefa é realizada e o resultado é enviado diretamente pelo painel.</p>
+            </article>
+            <article class="cinema-step reveal">
+              <span>04</span>
+              <h3>Acompanhe</h3>
+              <p>Aprovações, status, reputação e carteira ficam organizados no Nexus.</p>
+            </article>
+          </div>
+
+          <div class="cinema-mid-cta reveal">
+            <div>
+              <small>Tem alguns minutos livres?</small>
+              <b>Veja se existe uma missão para você.</b>
+            </div>
+            <a href="/register?role=worker">Começar agora →</a>
           </div>
         </section>
 
-        <section id="duvidas" class="lp-faq">
-          <div class="lp-section-head">
-            <span class="lp-kicker">SEM PEGADINHA</span>
-            <h2>Dúvidas que você provavelmente teria antes de entrar.</h2>
+        <section class="cinema-screen cinema-screen-soft cinema-categories">
+          <div class="cinema-section-title reveal">
+            <span class="cinema-eyebrow cinema-eyebrow-dark">TAREFAS HUMANAS, NÃO BOTS</span>
+            <h2>O que pode virar missão?</h2>
           </div>
 
-          <details open>
-            <summary>Eu vou ganhar R$ 50 por dia?</summary>
-            <p>Não existe garantia de renda diária. O valor depende da quantidade de missões disponíveis, do valor de cada tarefa e da aprovação dos trabalhos.</p>
-          </details>
-
-          <details>
-            <summary>Quanto vale cada missão?</summary>
-            <p>O valor é mostrado antes de você aceitar. No Bern Nexus, a recompensa mínima definida para uma missão é R$ 2,50.</p>
-          </details>
-
-          <details>
-            <summary>Preciso pagar para criar conta como trabalhador?</summary>
-            <p>O cadastro de trabalhador não exige pagamento para entrar e visualizar as missões disponíveis.</p>
-          </details>
-
-          <details>
-            <summary>O contratante pode pedir curtidas ou avaliações pagas?</summary>
-            <p>Não. O foco é trabalho legítimo: pesquisa, teste privado, opinião, levantamento e outras tarefas que não manipulem métricas ou avaliações públicas.</p>
-          </details>
+          <div class="cinema-card-track">
+            <article class="category-card reveal">
+              <span>01</span><h3>Pesquisa</h3>
+              <p>Levante preços, referências, contatos públicos ou informações específicas.</p>
+            </article>
+            <article class="category-card reveal">
+              <span>02</span><h3>Teste</h3>
+              <p>Peça avaliações privadas de páginas, fluxos, anúncios ou experiências.</p>
+            </article>
+            <article class="category-card reveal">
+              <span>03</span><h3>Opinião</h3>
+              <p>Compare ideias, nomes, criativos ou propostas e receba percepções reais.</p>
+            </article>
+            <article class="category-card reveal">
+              <span>04</span><h3>Levantamento</h3>
+              <p>Organize pequenas listas ou colete dados seguindo instruções claras.</p>
+            </article>
+          </div>
         </section>
 
-        <section class="lp-final">
-          <div class="lp-lion-big">${lion}</div>
-          <span class="lp-kicker">BERN NEXUS</span>
-          <h2>Se você tem tempo, pode existir uma missão.<br>Se você tem um problema, pode existir alguém para ajudar.</h2>
+        <section class="cinema-screen cinema-final">
+          <div class="cinema-final-lion reveal">
+            <img src="${BRAND_LOGO_DATA}" alt="Leão Bern Nexus">
+          </div>
 
-          <div class="lp-final-actions">
-            <a class="lp-main-cta" href="/register?role=worker">
-              <span class="lp-main-cta-icon">↗</span>
-              <span><strong>Começar minhas missões</strong><small>Criar perfil de trabalhador</small></span>
-            </a>
+          <div class="cinema-final-copy reveal">
+            <span class="cinema-eyebrow">BERN NEXUS</span>
+            <h2>Escolha de que lado você quer começar.</h2>
+            <p>
+              Faça pequenas missões para buscar renda extra ou publique tarefas
+              para colocar pessoas reais ajudando seu negócio.
+            </p>
 
-            <a class="lp-business-cta" href="/register?role=client">
-              <span class="lp-business-cta-icon">＋</span>
-              <span><strong>Publicar uma tarefa</strong><small>Criar perfil de contratante</small></span>
-            </a>
+            <div class="cinema-actions cinema-actions-center">
+              <a class="cinema-btn cinema-btn-gold" href="/register?role=worker">
+                <strong>Quero fazer missões</strong>
+                <span>Criar conta de trabalhador</span>
+              </a>
+              <a class="cinema-btn cinema-btn-ghost" href="/register?role=client">
+                <strong>Quero publicar tarefas</strong>
+                <span>Criar conta de contratante</span>
+              </a>
+            </div>
           </div>
         </section>
       </main>
 
-      <footer class="lp-footer">
-        <a class="lp-logo" href="/">${lion}<span>BERN <b>NEXUS</b></span></a>
-        <p>Pequenas missões. Pessoas reais. Recompensas e resultados claros.</p>
-        <a href="/login">Já tenho conta →</a>
-      </footer>
-
-      <div class="lp-mobile-bar">
-        <a href="/register?role=worker">Começar missões</a>
+      <div class="cinema-mobile-cta">
+        <a href="/register?role=worker">Fazer missões</a>
         <a href="/register?role=client">Publicar tarefa</a>
       </div>
     </div>
@@ -2381,6 +2360,103 @@ main{background:#FFFFFF}.hero h1{color:#0A0A0A}.muted,.small,small{color:#716E69
 
 
 
+
+/* === BERN NEXUS CINEMA / TESLA-INSPIRED INTERACTION LAYER === */
+html{scroll-behavior:smooth}
+.lp-cinema{
+  --gold:#BC913C;--gold-light:#E0B55A;--gold-dark:#86672A;
+  --black:#0A0A0A;--white:#FFFFFF;--soft:#F7F6F1;--gray:#BBB9B6;
+  background:#0A0A0A;color:#FFFFFF;overflow-x:hidden
+}
+.cinema-header{
+  position:fixed;top:0;left:50%;transform:translateX(-50%);
+  z-index:120;width:min(1280px,100%);
+  display:flex;align-items:center;justify-content:space-between;gap:20px;
+  padding:14px 24px;
+  background:linear-gradient(180deg,rgba(10,10,10,.78),rgba(10,10,10,.16),transparent);
+  border-bottom:1px solid rgba(255,255,255,.08);
+  backdrop-filter:blur(12px)
+}
+.cinema-brand{display:flex;align-items:center;gap:10px;color:#fff;text-decoration:none;font-weight:950;letter-spacing:.3px}
+.cinema-brand b{color:var(--gold-light)}.cinema-brand .lion-logo-img{width:38px;height:38px;border-radius:11px}
+.cinema-nav{display:flex;align-items:center;gap:22px;font-size:12px;font-weight:750}.cinema-nav a{color:#f4f4f4;text-decoration:none;text-shadow:0 1px 10px rgba(0,0,0,.25)}
+.cinema-nav-cta{padding:10px 14px;border-radius:10px;background:rgba(255,255,255,.92);color:#0A0A0A!important;text-shadow:none!important}
+.cinema-main{scroll-snap-type:y proximity}
+.cinema-screen{
+  position:relative;min-height:100svh;display:grid;align-items:center;
+  overflow:hidden;padding:96px max(24px,calc((100vw - 1180px)/2)) 60px;
+  scroll-snap-align:start
+}
+.cinema-screen-dark,.cinema-screen-black{background:#0A0A0A;color:#fff}
+.cinema-screen-light{background:#fff;color:#0A0A0A}
+.cinema-screen-soft{background:#F7F6F1;color:#0A0A0A}
+.cinema-hero{grid-template-columns:minmax(0,1.02fr) minmax(380px,.98fr);gap:48px}
+.cinema-watermark{position:absolute;right:-4vw;bottom:-10vh;width:min(60vw,780px);opacity:.13;filter:saturate(.8) contrast(1.1);pointer-events:none}
+.cinema-watermark img{width:100%;display:block}
+.cinema-hero-copy{position:relative;z-index:5;max-width:720px}
+.cinema-eyebrow{display:inline-block;color:#E0B55A;font-size:10px;font-weight:950;letter-spacing:1.5px;margin-bottom:14px}
+.cinema-eyebrow-dark{color:#86672A}
+.cinema-hero h1,.cinema-business h2,.cinema-section-title h2,.cinema-final h2{
+  margin:0;font-size:clamp(50px,6.6vw,92px);line-height:.95;letter-spacing:-4px;font-weight:950
+}
+.cinema-hero h1 em{font-style:normal;color:#E0B55A}
+.cinema-hero-copy>p,.cinema-business-copy>p,.cinema-final-copy>p{
+  max-width:680px;color:#D0D0D0;font-size:17px;line-height:1.65;margin:22px 0 0
+}
+.cinema-business-copy>p{color:#5f5b54}.cinema-final-copy>p{margin-left:auto;margin-right:auto}
+.cinema-actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:28px}.cinema-actions-center{justify-content:center}
+.cinema-btn{
+  min-width:250px;min-height:66px;display:flex;flex-direction:column;justify-content:center;
+  padding:12px 17px;border-radius:13px;text-decoration:none;border:1px solid transparent;
+  transition:transform .22s ease,box-shadow .22s ease,background .22s ease
+}
+.cinema-btn:hover{transform:translateY(-3px)}.cinema-btn strong{font-size:14px}.cinema-btn span{font-size:11px;margin-top:3px}
+.cinema-btn-gold{background:#BC913C;color:#0A0A0A;box-shadow:0 18px 42px rgba(188,145,60,.22)}.cinema-btn-gold span{color:#4c390e}
+.cinema-btn-ghost{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.28);color:#fff;backdrop-filter:blur(10px)}.cinema-btn-ghost span{color:#c6c6c6}
+.cinema-btn-black{background:#0A0A0A;color:#fff;box-shadow:0 16px 34px rgba(10,10,10,.14)}.cinema-btn-black span{color:#BBB9B6}
+.cinema-btn-outline{background:#fff;border-color:#BBB9B6;color:#0A0A0A}.cinema-btn-outline span{color:#716E69}
+.cinema-trust{display:flex;gap:16px;flex-wrap:wrap;margin-top:20px;color:#BDBDBD;font-size:11px}
+.float-stack,.business-stage{position:relative;z-index:5;min-height:560px}
+.float-card,.biz-float{
+  position:absolute;border-radius:22px;box-shadow:0 28px 80px rgba(0,0,0,.32);
+  backdrop-filter:blur(16px);transition:transform .3s ease,box-shadow .3s ease
+}
+.float-card:hover,.biz-float:hover{transform:translateY(-7px) scale(1.01);box-shadow:0 34px 90px rgba(0,0,0,.38)}
+.float-card-main{left:8%;top:19%;width:min(420px,78%);padding:22px;background:linear-gradient(180deg,rgba(30,30,30,.97),rgba(14,14,14,.94));border:1px solid rgba(224,181,90,.32);animation:floatA 6s ease-in-out infinite}
+.float-card-head{display:flex;justify-content:space-between;align-items:center}.float-card-head strong{color:#E0B55A;font-size:21px}.float-tag{background:#BC913C;color:#0A0A0A;border-radius:999px;padding:5px 8px;font-size:9px;font-weight:950}
+.float-card h3{font-size:24px;margin:18px 0 8px}.float-card p{color:#B9B9B9;line-height:1.5;font-size:13px}.float-meta{display:flex;gap:12px;flex-wrap:wrap;color:#9d9d9d;font-size:11px;margin:18px 0}.float-action{background:#BC913C;color:#0A0A0A;text-align:center;padding:12px;border-radius:11px;font-weight:950}
+.float-card-mini{padding:15px 17px;background:rgba(255,255,255,.93);color:#0A0A0A;border:1px solid rgba(255,255,255,.62)}.float-card-mini small,.float-card-mini span{display:block;color:#716E69}.float-card-mini b{display:block;font-size:20px;margin:4px 0}
+.float-card-top{right:2%;top:8%;width:210px;animation:floatB 5.2s ease-in-out infinite}.float-card-bottom{left:0;bottom:8%;width:220px;animation:floatC 6.6s ease-in-out infinite}
+.float-progress{height:6px;border-radius:99px;background:#E5E5E5;margin-top:9px;overflow:hidden}.float-progress i{display:block;height:100%;background:#BC913C;border-radius:99px}
+.cinema-scroll{position:absolute;left:50%;bottom:24px;transform:translateX(-50%);color:#C5C5C5;text-decoration:none;font-size:10px;letter-spacing:.5px}
+.cinema-business{grid-template-columns:minmax(0,1fr) minmax(400px,.9fr);gap:55px}
+.business-stage{min-height:520px}
+.biz-float-main{left:4%;top:18%;width:min(500px,88%);background:#fff;border:1px solid #D8D5D0;padding:22px;color:#0A0A0A;animation:floatA 6.4s ease-in-out infinite}.biz-title-row{display:flex;justify-content:space-between;gap:16px}.biz-title-row small{display:block;color:#716E69}.biz-title-row h3{font-size:24px;line-height:1.25;margin:6px 0}.biz-title-row>span{height:max-content;background:#0A0A0A;color:#E0B55A;border-radius:999px;padding:6px 9px;font-size:9px;font-weight:950}
+.biz-metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin:22px 0}.biz-metrics>div{background:#F7F6F1;border-radius:13px;padding:12px}.biz-metrics small{display:block;color:#716E69}.biz-metrics b{display:block;font-size:19px;margin-top:4px}
+.biz-status{font-size:11px;color:#716E69}.biz-progress{height:7px;background:#E5E2DC;border-radius:99px;overflow:hidden;margin-top:9px}.biz-progress i{display:block;height:100%;background:#BC913C}
+.biz-float-small{background:#0A0A0A;color:#fff;border:1px solid #292929;padding:15px 17px}.biz-float-small small{display:block;color:#BBB9B6}.biz-float-small b{display:block;margin-top:5px;font-size:16px;line-height:1.35}.biz-float-a{right:0;top:4%;width:205px;animation:floatB 5.7s ease-in-out infinite}.biz-float-b{left:0;bottom:4%;width:255px;animation:floatC 6.2s ease-in-out infinite}
+.cinema-how{display:block;padding-top:110px}.cinema-section-title{max-width:850px}.cinema-section-title h2{font-size:clamp(44px,6vw,74px)}
+.cinema-steps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-top:44px}.cinema-step{min-height:300px;border:1px solid #282828;border-radius:22px;padding:23px;background:linear-gradient(180deg,#111,#0c0c0c);box-shadow:0 20px 50px rgba(0,0,0,.28);transition:transform .25s ease,border-color .25s ease}.cinema-step:hover{transform:translateY(-8px);border-color:#86672A}.cinema-step>span{font-size:11px;color:#E0B55A;font-weight:950}.cinema-step h3{font-size:25px;margin:125px 0 10px}.cinema-step p{color:#ABABAB;font-size:13px;line-height:1.55}
+.cinema-mid-cta{margin-top:20px;border:1px solid #2f2f2f;border-radius:18px;padding:17px 19px;display:flex;align-items:center;justify-content:space-between;gap:18px;background:#111}.cinema-mid-cta small,.cinema-mid-cta b{display:block}.cinema-mid-cta small{color:#B0B0B0}.cinema-mid-cta b{margin-top:4px;font-size:18px}.cinema-mid-cta a{background:#BC913C;color:#0A0A0A;text-decoration:none;padding:12px 15px;border-radius:11px;font-weight:950}
+.cinema-categories{display:block;padding-top:110px}.cinema-card-track{display:grid;grid-template-columns:repeat(4,minmax(260px,1fr));gap:14px;margin-top:44px}.category-card{min-height:360px;background:#fff;border:1px solid #DAD7D2;border-radius:22px;padding:23px;box-shadow:0 18px 46px rgba(10,10,10,.06);transition:transform .25s ease,box-shadow .25s ease}.category-card:hover{transform:translateY(-9px);box-shadow:0 28px 60px rgba(10,10,10,.10)}.category-card>span{font-size:10px;color:#86672A;font-weight:950}.category-card h3{font-size:28px;margin:165px 0 10px}.category-card p{color:#716E69;font-size:13px;line-height:1.55}
+.cinema-final{background:radial-gradient(circle at 50% 25%,rgba(188,145,60,.22),transparent 24rem),#0A0A0A;text-align:center;display:grid;place-items:center}.cinema-final-lion img{width:min(280px,48vw);border-radius:36px;box-shadow:0 30px 90px rgba(188,145,60,.18)}.cinema-final-copy{max-width:900px}.cinema-final-copy h2{font-size:clamp(44px,6vw,76px);margin-top:26px}.cinema-final-copy>p{color:#B9B9B9}
+.cinema-mobile-cta{display:none}
+.reveal{opacity:0;transform:translateY(32px);transition:opacity .7s ease,transform .7s cubic-bezier(.2,.8,.2,1)}.reveal.is-visible{opacity:1;transform:none}
+@keyframes floatA{0%,100%{transform:translate3d(0,0,0) rotate(-1deg)}50%{transform:translate3d(0,-14px,0) rotate(.4deg)}}
+@keyframes floatB{0%,100%{transform:translate3d(0,0,0) rotate(1.2deg)}50%{transform:translate3d(0,11px,0) rotate(-.4deg)}}
+@keyframes floatC{0%,100%{transform:translate3d(0,0,0) rotate(-.8deg)}50%{transform:translate3d(0,-9px,0) rotate(.5deg)}}
+
+/* Portal motion/depth */
+.app .card,.app .metric-card,.app .panel,.app .mission-row,.app .goal{
+  transition:transform .22s ease,box-shadow .22s ease,border-color .22s ease
+}
+.app .card:hover,.app .metric-card:hover,.app .mission-row:hover{
+  transform:translateY(-5px);box-shadow:0 18px 42px rgba(10,10,10,.10);border-color:#BC913C
+}
+.app .goal{box-shadow:0 18px 38px rgba(188,145,60,.10)}
+.app .metric-grid{position:relative;z-index:2}
+.app main{background:linear-gradient(180deg,#FFFFFF 0,#FFFFFF 260px,#F7F6F1 260px,#F7F6F1 100%)}
+
 /* === LP oficial #BC913C / #E0B55A / #86672A / #FFFFFF / #F7F6F1 / #BBB9B6 / #0A0A0A === */
 .lp-gold{--gold:#BC913C;--gold-2:#E0B55A;--gold-3:#E0B55A;--ink:#0A0A0A;--muted:#716E69;--soft:#F7F6F1;--line-gold:#BBB9B6;background:#FFFFFF;color:#0A0A0A}
 .lp-header{background:rgba(255,255,255,.95);border-bottom-color:#E3E0DA}.lp-logo{color:#0A0A0A}.lp-logo b{color:#BC913C}
@@ -2400,6 +2476,41 @@ main{background:#FFFFFF}.hero h1{color:#0A0A0A}.muted,.small,small{color:#716E69
 .lp-use-grid span{color:#86672A}.lp-use-grid p,.lp-faq details p{color:#716E69}.lp-faq details{border-bottom-color:#E3E0DA}
 .lp-final{background:#F7F6F1;border-color:#E0B55A}.lp-footer{color:#716E69}.lp-footer>a:last-child{color:#86672A}
 .lp-mobile-bar{background:rgba(255,255,255,.97);border-color:#E0B55A}.lp-mobile-bar a:first-child{background:#BC913C;color:#0A0A0A}.lp-mobile-bar a:last-child{background:#0A0A0A;color:#FFFFFF}
+
+
+@media(max-width:1020px){
+  .cinema-hero,.cinema-business{grid-template-columns:1fr;gap:24px}
+  .cinema-screen{min-height:auto;padding-top:120px;padding-bottom:70px}
+  .float-stack,.business-stage{min-height:480px}
+  .cinema-steps{grid-template-columns:repeat(2,1fr)}
+  .cinema-card-track{grid-template-columns:repeat(2,1fr)}
+}
+@media(max-width:720px){
+  .cinema-header{padding:11px 13px;background:rgba(10,10,10,.92)}
+  .cinema-nav>a:not(.cinema-nav-cta):not([href="/login"]){display:none}
+  .cinema-nav{gap:8px}.cinema-brand span{font-size:12px}.cinema-brand .lion-logo-img{width:34px;height:34px}
+  .cinema-screen{padding:100px 15px 74px}
+  .cinema-hero h1,.cinema-business h2,.cinema-section-title h2,.cinema-final h2{font-size:clamp(42px,13vw,60px);letter-spacing:-2.5px}
+  .cinema-hero-copy>p,.cinema-business-copy>p,.cinema-final-copy>p{font-size:15px}
+  .cinema-actions{flex-direction:column}.cinema-btn{width:100%;min-width:0}
+  .cinema-trust{display:grid;gap:7px}
+  .float-stack,.business-stage{min-height:430px}
+  .float-card-main,.biz-float-main{left:0;top:82px;width:94%}
+  .float-card-top,.biz-float-a{right:0;top:0;width:185px}
+  .float-card-bottom,.biz-float-b{left:auto;right:8px;bottom:0;width:205px}
+  .cinema-steps,.cinema-card-track{grid-template-columns:1fr}
+  .cinema-step{min-height:220px}.cinema-step h3{margin-top:75px}
+  .category-card{min-height:250px}.category-card h3{margin-top:80px}
+  .cinema-mid-cta{flex-direction:column;align-items:flex-start}
+  .cinema-mobile-cta{position:fixed;z-index:130;left:8px;right:8px;bottom:8px;display:grid;grid-template-columns:1fr 1fr;gap:7px;padding:7px;background:rgba(255,255,255,.95);border:1px solid #E0B55A;border-radius:15px;box-shadow:0 14px 36px rgba(0,0,0,.22);backdrop-filter:blur(14px)}
+  .cinema-mobile-cta a{text-align:center;text-decoration:none;padding:12px 7px;border-radius:10px;font-size:11px;font-weight:950}
+  .cinema-mobile-cta a:first-child{background:#BC913C;color:#0A0A0A}.cinema-mobile-cta a:last-child{background:#0A0A0A;color:#fff}
+  .cinema-scroll{display:none}
+}
+@media(prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}.float-card-main,.float-card-top,.float-card-bottom,.biz-float-main,.biz-float-a,.biz-float-b{animation:none}
+  .reveal{opacity:1;transform:none;transition:none}
+}
 
 @media(max-width:960px){
   .lp-flow{grid-template-columns:1fr 1fr}.lp-flow-arrow{display:none}
@@ -2577,6 +2688,40 @@ ${body}
       }
     });
   });
+
+
+  const reveals=[...document.querySelectorAll(".reveal")];
+  if(reveals.length){
+    if("IntersectionObserver" in window){
+      const io=new IntersectionObserver(entries=>{
+        entries.forEach(entry=>{
+          if(entry.isIntersecting){
+            entry.target.classList.add("is-visible");
+            io.unobserve(entry.target);
+          }
+        });
+      },{threshold:.14,rootMargin:"0px 0px -6% 0px"});
+      reveals.forEach(el=>io.observe(el));
+    }else{
+      reveals.forEach(el=>el.classList.add("is-visible"));
+    }
+  }
+
+  const cinemaHeader=document.querySelector(".cinema-header");
+  if(cinemaHeader){
+    let ticking=false;
+    const onScroll=()=>{
+      if(ticking)return;
+      ticking=true;
+      requestAnimationFrame(()=>{
+        cinemaHeader.style.background=window.scrollY>40
+          ?"rgba(10,10,10,.94)"
+          :"linear-gradient(180deg,rgba(10,10,10,.78),rgba(10,10,10,.16),transparent)";
+        ticking=false;
+      });
+    };
+    window.addEventListener("scroll",onScroll,{passive:true});
+  }
 
   async function compressImage(file){
     if(file.size>8*1024*1024) throw new Error("Escolha uma imagem de até 8 MB.");
