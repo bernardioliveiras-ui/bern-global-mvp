@@ -22,6 +22,34 @@ async function api(request, env, url) {
 
   const method = request.method.toUpperCase();
   const path = url.pathname;
+
+  if (method === "GET" && path === "/api/health") {
+    try {
+      const expected = ["users","sessions","missions","submissions","wallet_ledger"];
+      const rows = await env.DB.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+      ).all();
+      const tables = (rows.results || []).map(x => x.name);
+      const missing = expected.filter(x => !tables.includes(x));
+      return json({
+        ok: missing.length === 0,
+        db_binding: true,
+        tables,
+        missing_tables: missing,
+        message: missing.length
+          ? "D1 conectado, mas faltam tabelas. Execute as migrations."
+          : "D1 conectado e estrutura principal pronta."
+      }, missing.length ? 503 : 200);
+    } catch (e) {
+      return json({
+        ok: false,
+        db_binding: true,
+        message: "O binding DB existe, mas a consulta de diagnóstico falhou.",
+        detail: String(e?.message || e)
+      }, 500);
+    }
+  }
+
   const user = await currentUser(request, env);
 
   if (method === "POST" && path === "/api/register") {
@@ -39,9 +67,11 @@ async function api(request, env, url) {
     const salt = randomHex(16);
     const password_hash = await hashPassword(password, salt);
     const r = await env.DB.prepare(
-      "INSERT INTO users(name,email,password_hash,password_salt,role) VALUES(?,?,?,?,?) RETURNING id"
-    ).bind(name,email,password_hash,salt,role).first();
-    return await createSessionResponse(env, r.id, { ok:true });
+      "INSERT INTO users(name,email,password_hash,password_salt,role) VALUES(?,?,?,?,?)"
+    ).bind(name,email,password_hash,salt,role).run();
+    const userId = Number(r.meta?.last_row_id || 0);
+    if (!userId) throw new Error("Não foi possível obter o ID do usuário criado.");
+    return await createSessionResponse(env, userId, { ok:true });
   }
 
   if (method === "POST" && path === "/api/login") {
@@ -100,9 +130,11 @@ async function api(request, env, url) {
 
     const row = await env.DB.prepare(`
       INSERT INTO missions(client_id,title,category,description,instructions,reward,slots,image_data,status)
-      VALUES(?,?,?,?,?,?,?,?, 'open') RETURNING id
-    `).bind(user.id,title,category,description,instructions,reward,slots,image || null).first();
-    return json({ok:true,id:row.id});
+      VALUES(?,?,?,?,?,?,?,?, 'open')
+    `).bind(user.id,title,category,description,instructions,reward,slots,image || null).run();
+    const missionId = Number(row.meta?.last_row_id || 0);
+    if (!missionId) throw new Error("Não foi possível obter o ID da missão criada.");
+    return json({ok:true,id:missionId});
   }
 
   const startMatch = path.match(/^\/api\/missions\/(\d+)\/start$/);
@@ -258,10 +290,12 @@ async function currentUser(request, env) {
 async function createSessionResponse(env,userId,payload) {
   const token = randomHex(32);
   await env.DB.prepare("DELETE FROM sessions WHERE user_id=? AND expires_at <= CURRENT_TIMESTAMP").bind(userId).run();
+  const expiresAt = new Date(Date.now() + SESSION_DAYS * 86400000)
+    .toISOString().replace("T"," ").replace("Z","");
   await env.DB.prepare(`
     INSERT INTO sessions(token,user_id,expires_at)
-    VALUES(?,?,datetime('now',?))
-  `).bind(token,userId,`+${SESSION_DAYS} days`).run();
+    VALUES(?,?,?)
+  `).bind(token,userId,expiresAt).run();
   return json(payload,200,{"set-cookie":sessionCookie(token)});
 }
 
@@ -408,7 +442,18 @@ const esc=s=>String(s??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&
 async function api(path,opts={}){
   const r=await fetch(path,{headers:{"content-type":"application/json",...(opts.headers||{})},...opts});
   let d={};try{d=await r.json()}catch{}
-  if(!r.ok)throw new Error(d.error||"Erro na operação");
+  if(!r.ok){
+    if(d.error==="Erro interno" && path!=="/api/health"){
+      try{
+        const hr=await fetch("/api/health",{cache:"no-store"});
+        const hd=await hr.json();
+        if(!hd.ok) throw new Error((hd.message||"Falha no D1")+(hd.missing_tables?.length?" Faltando: "+hd.missing_tables.join(", "):""));
+      }catch(healthErr){
+        if(healthErr?.message && healthErr.message!=="Failed to fetch") throw healthErr;
+      }
+    }
+    throw new Error(d.error||"Erro na operação");
+  }
   return d;
 }
 async function boot(){

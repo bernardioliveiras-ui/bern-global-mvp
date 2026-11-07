@@ -1,4 +1,4 @@
-# BERN NEXUS v0.2 — Worker + D1
+# BERN NEXUS v0.2.1 — Worker + D1
 
 MVP online multiusuário.
 
@@ -77,3 +77,24 @@ ANTES do primeiro deploy via Git, o banco D1 precisa existir e o `database_id` c
 A imagem é redimensionada para no máximo 900 px e comprimida como JPEG no navegador.
 O app limita a string da imagem a aproximadamente 200 KB.
 Isso é adequado para MVP e evita R2, mas não é a arquitetura recomendada para grande escala.
+
+
+## Diagnóstico v0.2.1
+
+Abra no navegador:
+
+    https://SEU-WORKER.workers.dev/api/health
+
+Resposta saudável esperada:
+
+    {
+      "ok": true,
+      "db_binding": true,
+      "missing_tables": []
+    }
+
+Se aparecer `missing_tables`, o D1 está conectado mas a migration não foi aplicada.
+Se aparecer `D1 não configurado`, confira o binding `DB` no `wrangler.jsonc` e no Worker publicado.
+
+A v0.2.1 também troca `INSERT ... RETURNING` pelo `meta.last_row_id`
+retornado pelo D1, deixando o cadastro e a criação de missões mais robustos.
