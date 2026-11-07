@@ -1,13 +1,13 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "bern-nexus",
+  "name": "bern-global-mvp",
   "main": "./src.js",
   "compatibility_date": "2026-11-06",
   "workers_dev": true,
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "bern-nexus-db",
+      "database_name": "bern-global-mvp",
       "database_id": "78611ba7-7f7b-415d-b977-6efc296b6fbc",
       "migrations_dir": "migrations"
     }
