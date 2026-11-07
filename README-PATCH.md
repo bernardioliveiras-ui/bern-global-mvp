@@ -1,21 +1,40 @@
-# BERN NEXUS v0.3.3 — Layout responsivo
+# BERN NEXUS v0.3.4 — Tabelas isoladas no D1
 
-Este patch corrige o posicionamento visual sem alterar D1, login, missões ou regras de perfil.
+Corrige o erro:
 
-Principais mudanças:
-- Desktop: sidebar lateral fixa/organizada e conteúdo à direita.
-- Mobile: navegação inferior preservada, com espaço para não cobrir formulários.
-- App deixa de ficar preso em 620 px no computador.
-- Largura máxima de 1180 px em telas grandes.
-- Cards em 2 colunas no desktop.
-- Formulários com largura controlada e campos alinhados.
-- Nome + perfil no cabeçalho.
-- Melhor responsividade para 320 px até desktop.
-- Perfis continuam travados conforme v0.3.2.
+    D1_ERROR: table users has no column named password_salt
 
-IMPORTANTE:
+## Causa
+
+O binding DB está ligado ao banco `bern-global-db`, que já possuía uma tabela `users`
+de outro projeto. `CREATE TABLE IF NOT EXISTS users` não altera a estrutura de uma
+tabela já existente, então o Bern Nexus acabava tentando usar a tabela antiga.
+
+## Correção
+
+O Bern Nexus agora usa tabelas próprias:
+
+- nexus_users
+- nexus_sessions
+- nexus_missions
+- nexus_submissions
+- nexus_wallet_ledger
+
+Isso permite usar o mesmo D1 sem mexer nas tabelas existentes do Bern Global.
+
+## O que fazer
+
 Substitua apenas:
 - src.js
 - package.json
 
-Não substitua seu wrangler.jsonc.
+NÃO substitua seu wrangler.jsonc.
+
+Depois faça commit/push. O Worker criará automaticamente as novas tabelas na
+primeira requisição.
+
+## Observação
+
+Dados de tentativas anteriores salvos nas tabelas antigas não são reutilizados.
+Como o cadastro anterior estava falhando, o esperado é criar contas novas após
+o deploy da v0.3.4.

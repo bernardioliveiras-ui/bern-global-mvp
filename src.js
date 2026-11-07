@@ -97,7 +97,7 @@ export default {
             <div class="brand big">BERN <b>NEXUS</b></div>
             <h1>Algo deu errado</h1>
             <p class="muted">${esc(String(e?.message || e))}</p>
-            <div class="notice">Se o erro aconteceu no cadastro, tente entrar novamente. A v0.3.1 separa criação de conta e criação de sessão.</div>
+            <div class="notice">Se o erro aconteceu no cadastro, volte ao login e tente novamente. O Bern Nexus agora usa tabelas isoladas no D1.</div>
             <a class="btn primary wide linkbtn" href="/login">Ir para o login</a>
           </div>
         </div>`, 500);
@@ -109,7 +109,7 @@ async function ensureSchema(db) {
   if (!schemaPromise) {
     schemaPromise = (async () => {
       const statements = [
-        `CREATE TABLE IF NOT EXISTS users (
+        `CREATE TABLE IF NOT EXISTS nexus_users (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           name TEXT NOT NULL,
           email TEXT NOT NULL UNIQUE,
@@ -118,13 +118,13 @@ async function ensureSchema(db) {
           role TEXT NOT NULL DEFAULT 'worker',
           created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )`,
-        `CREATE TABLE IF NOT EXISTS sessions (
+        `CREATE TABLE IF NOT EXISTS nexus_sessions (
           token TEXT PRIMARY KEY,
           user_id INTEGER NOT NULL,
           expires_at TEXT NOT NULL,
           created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )`,
-        `CREATE TABLE IF NOT EXISTS missions (
+        `CREATE TABLE IF NOT EXISTS nexus_missions (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           client_id INTEGER,
           title TEXT NOT NULL,
@@ -137,7 +137,7 @@ async function ensureSchema(db) {
           status TEXT NOT NULL DEFAULT 'open',
           created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )`,
-        `CREATE TABLE IF NOT EXISTS submissions (
+        `CREATE TABLE IF NOT EXISTS nexus_submissions (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           mission_id INTEGER NOT NULL,
           worker_id INTEGER NOT NULL,
@@ -149,7 +149,7 @@ async function ensureSchema(db) {
           reviewed_at TEXT,
           UNIQUE(mission_id, worker_id)
         )`,
-        `CREATE TABLE IF NOT EXISTS wallet_ledger (
+        `CREATE TABLE IF NOT EXISTS nexus_wallet_ledger (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           user_id INTEGER NOT NULL,
           amount REAL NOT NULL,
@@ -158,10 +158,10 @@ async function ensureSchema(db) {
           description TEXT,
           created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )`,
-        `CREATE INDEX IF NOT EXISTS idx_missions_status ON missions(status, created_at)`,
-        `CREATE INDEX IF NOT EXISTS idx_submissions_worker ON submissions(worker_id, created_at)`,
-        `CREATE INDEX IF NOT EXISTS idx_submissions_mission ON submissions(mission_id, status)`,
-        `CREATE INDEX IF NOT EXISTS idx_wallet_user ON wallet_ledger(user_id, created_at)`
+        `CREATE INDEX IF NOT EXISTS idx_nexus_missions_status ON nexus_missions(status, created_at)`,
+        `CREATE INDEX IF NOT EXISTS idx_nexus_submissions_worker ON nexus_submissions(worker_id, created_at)`,
+        `CREATE INDEX IF NOT EXISTS idx_nexus_submissions_mission ON nexus_submissions(mission_id, status)`,
+        `CREATE INDEX IF NOT EXISTS idx_nexus_wallet_user ON nexus_wallet_ledger(user_id, created_at)`
       ];
       await db.batch(statements.map(sql => db.prepare(sql)));
       return true;
@@ -184,13 +184,13 @@ async function handleRegister(request, db) {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return redirect("/register?err=" + enc("E-mail inválido."), request);
   if (password.length < 6) return redirect("/register?err=" + enc("A senha precisa ter pelo menos 6 caracteres."), request);
 
-  const exists = await db.prepare("SELECT id FROM users WHERE email=? LIMIT 1").bind(email).first();
+  const exists = await db.prepare("SELECT id FROM nexus_users WHERE email=? LIMIT 1").bind(email).first();
   if (exists) return redirect("/login?err=" + enc("Esse e-mail já está cadastrado."), request);
 
   const salt = randomHex(16);
   const hash = await hashPassword(password, salt);
   const r = await db.prepare(
-    "INSERT INTO users(name,email,password_hash,password_salt,role) VALUES(?,?,?,?,?)"
+    "INSERT INTO nexus_users(name,email,password_hash,password_salt,role) VALUES(?,?,?,?,?)"
   ).bind(name,email,hash,salt,role).run();
 
   const userId = Number(r.meta?.last_row_id || 0);
@@ -203,7 +203,7 @@ async function handleLogin(request, db) {
   const f = await request.formData();
   const email = clean(f.get("email"), 160).toLowerCase();
   const password = String(f.get("password") || "");
-  const row = await db.prepare("SELECT * FROM users WHERE email=? LIMIT 1").bind(email).first();
+  const row = await db.prepare("SELECT * FROM nexus_users WHERE email=? LIMIT 1").bind(email).first();
   if (!row) return redirect("/login?err=" + enc("E-mail ou senha incorretos."), request);
 
   const hash = await hashPassword(password, row.password_salt);
@@ -217,7 +217,7 @@ async function handleLogin(request, db) {
 
 async function handleLogout(request, db) {
   const token = getCookie(request, "bn_session");
-  if (token) await db.prepare("DELETE FROM sessions WHERE token=?").bind(token).run();
+  if (token) await db.prepare("DELETE FROM nexus_sessions WHERE token=?").bind(token).run();
   return redirect("/login?msg=" + enc("Você saiu da conta."), request, expiredCookie());
 }
 
@@ -247,7 +247,7 @@ async function handleCreateMission(request, db, user) {
   }
 
   await db.prepare(`
-    INSERT INTO missions(client_id,title,category,description,instructions,reward,slots,image_data,status)
+    INSERT INTO nexus_missions(client_id,title,category,description,instructions,reward,slots,image_data,status)
     VALUES(?,?,?,?,?,?,?,?, 'open')
   `).bind(user.id,title,category,description,instructions,reward,slots,image || null).run();
 
@@ -257,12 +257,12 @@ async function handleCreateMission(request, db, user) {
 async function handleStartMission(request, db, user, missionId) {
   if (!canWorker(user)) return redirect("/?err=" + enc("Seu perfil não pode executar missões."), request);
 
-  const mission = await db.prepare("SELECT * FROM missions WHERE id=? LIMIT 1").bind(missionId).first();
+  const mission = await db.prepare("SELECT * FROM nexus_missions WHERE id=? LIMIT 1").bind(missionId).first();
   if (!mission || mission.status !== "open") return redirect("/?err=" + enc("Missão indisponível."), request);
   if (Number(mission.client_id) === Number(user.id)) return redirect("/?err=" + enc("Você não pode executar sua própria missão."), request);
 
   const occupied = await db.prepare(
-    "SELECT COUNT(*) c FROM submissions WHERE mission_id=? AND status IN ('started','submitted','approved')"
+    "SELECT COUNT(*) c FROM nexus_submissions WHERE mission_id=? AND status IN ('started','submitted','approved')"
   ).bind(missionId).first();
 
   if (Number(occupied?.c || 0) >= Number(mission.slots)) {
@@ -270,7 +270,7 @@ async function handleStartMission(request, db, user, missionId) {
   }
 
   const already = await db.prepare(
-    "SELECT id,status FROM submissions WHERE mission_id=? AND worker_id=? LIMIT 1"
+    "SELECT id,status FROM nexus_submissions WHERE mission_id=? AND worker_id=? LIMIT 1"
   ).bind(missionId,user.id).first();
 
   if (already) {
@@ -278,7 +278,7 @@ async function handleStartMission(request, db, user, missionId) {
   }
 
   await db.prepare(
-    "INSERT INTO submissions(mission_id,worker_id,status) VALUES(?,?,'started')"
+    "INSERT INTO nexus_submissions(mission_id,worker_id,status) VALUES(?,?,'started')"
   ).bind(missionId,user.id).run();
 
   return redirect("/?view=mine&msg=" + enc("Missão aceita. Agora envie o trabalho."), request);
@@ -297,7 +297,7 @@ async function handleSubmitWork(request, db, user, submissionId) {
   }
 
   const r = await db.prepare(`
-    UPDATE submissions
+    UPDATE nexus_submissions
     SET answer=?, proof_image=?, status='submitted', submitted_at=CURRENT_TIMESTAMP
     WHERE id=? AND worker_id=? AND status='started'
   `).bind(answer, proof || null, submissionId, user.id).run();
@@ -311,7 +311,7 @@ async function handleReview(request, db, user, submissionId, action) {
 
   const s = await db.prepare(`
     SELECT s.id,s.worker_id,s.status,m.reward,m.client_id,m.title
-    FROM submissions s JOIN missions m ON m.id=s.mission_id
+    FROM nexus_submissions s JOIN nexus_missions m ON m.id=s.mission_id
     WHERE s.id=? AND m.client_id=? LIMIT 1
   `).bind(submissionId,user.id).first();
 
@@ -320,18 +320,18 @@ async function handleReview(request, db, user, submissionId, action) {
 
   if (action === "reject") {
     await db.prepare(
-      "UPDATE submissions SET status='rejected',reviewed_at=CURRENT_TIMESTAMP WHERE id=? AND status='submitted'"
+      "UPDATE nexus_submissions SET status='rejected',reviewed_at=CURRENT_TIMESTAMP WHERE id=? AND status='submitted'"
     ).bind(submissionId).run();
     return redirect("/?view=client&msg=" + enc("Trabalho rejeitado."), request);
   }
 
   await db.batch([
     db.prepare(`
-      INSERT OR IGNORE INTO wallet_ledger(user_id,amount,type,source_ref,description)
+      INSERT OR IGNORE INTO nexus_wallet_ledger(user_id,amount,type,source_ref,description)
       VALUES(?,?,'mission_reward',?,?)
     `).bind(s.worker_id,Number(s.reward),`submission:${submissionId}`,`Missão aprovada: ${clean(s.title,100)}`),
     db.prepare(
-      "UPDATE submissions SET status='approved',reviewed_at=CURRENT_TIMESTAMP WHERE id=? AND status='submitted'"
+      "UPDATE nexus_submissions SET status='approved',reviewed_at=CURRENT_TIMESTAMP WHERE id=? AND status='submitted'"
     ).bind(submissionId)
   ]);
 
@@ -340,7 +340,7 @@ async function handleReview(request, db, user, submissionId, action) {
 
 async function handleMissionStatus(request, db, user, missionId, status) {
   if (!canClient(user)) return redirect("/?view=client&err=" + enc("Perfil sem acesso."), request);
-  await db.prepare("UPDATE missions SET status=? WHERE id=? AND client_id=?").bind(status,missionId,user.id).run();
+  await db.prepare("UPDATE nexus_missions SET status=? WHERE id=? AND client_id=?").bind(status,missionId,user.id).run();
   return redirect("/?view=client&msg=" + enc(status === "open" ? "Missão reaberta." : "Missão fechada."), request);
 }
 
@@ -362,34 +362,34 @@ async function renderDashboard(request, db, user, url) {
   const err = url.searchParams.get("err") || "";
 
   const [wallet, today, missions, mine, clientMissions, clientSubs] = await Promise.all([
-    db.prepare("SELECT COALESCE(SUM(amount),0) v FROM wallet_ledger WHERE user_id=?").bind(user.id).first(),
+    db.prepare("SELECT COALESCE(SUM(amount),0) v FROM nexus_wallet_ledger WHERE user_id=?").bind(user.id).first(),
     db.prepare(`
-      SELECT COALESCE(SUM(amount),0) v FROM wallet_ledger
+      SELECT COALESCE(SUM(amount),0) v FROM nexus_wallet_ledger
       WHERE user_id=? AND date(created_at,'-3 hours')=date('now','-3 hours')
     `).bind(user.id).first(),
     db.prepare(`
       SELECT m.*, u.name client_name,
-        (SELECT COUNT(*) FROM submissions s WHERE s.mission_id=m.id AND s.status IN ('started','submitted','approved')) occupied
-      FROM missions m LEFT JOIN users u ON u.id=m.client_id
+        (SELECT COUNT(*) FROM nexus_submissions s WHERE s.mission_id=m.id AND s.status IN ('started','submitted','approved')) occupied
+      FROM nexus_missions m LEFT JOIN nexus_users u ON u.id=m.client_id
       WHERE m.status='open'
       ORDER BY m.created_at DESC LIMIT 100
     `).all(),
     canWorker(user) ? db.prepare(`
       SELECT s.*,m.title,m.category,m.reward,m.description,m.image_data
-      FROM submissions s JOIN missions m ON m.id=s.mission_id
+      FROM nexus_submissions s JOIN nexus_missions m ON m.id=s.mission_id
       WHERE s.worker_id=? ORDER BY s.created_at DESC
     `).bind(user.id).all() : Promise.resolve({results:[]}),
     canClient(user) ? db.prepare(`
       SELECT m.*,
-        (SELECT COUNT(*) FROM submissions s WHERE s.mission_id=m.id) submissions_count,
-        (SELECT COUNT(*) FROM submissions s WHERE s.mission_id=m.id AND s.status='approved') approved_count
-      FROM missions m WHERE m.client_id=? ORDER BY m.created_at DESC
+        (SELECT COUNT(*) FROM nexus_submissions s WHERE s.mission_id=m.id) submissions_count,
+        (SELECT COUNT(*) FROM nexus_submissions s WHERE s.mission_id=m.id AND s.status='approved') approved_count
+      FROM nexus_missions m WHERE m.client_id=? ORDER BY m.created_at DESC
     `).bind(user.id).all() : Promise.resolve({results:[]}),
     canClient(user) ? db.prepare(`
       SELECT s.*,w.name worker_name,m.title,m.reward,m.client_id
-      FROM submissions s
-      JOIN missions m ON m.id=s.mission_id
-      JOIN users w ON w.id=s.worker_id
+      FROM nexus_submissions s
+      JOIN nexus_missions m ON m.id=s.mission_id
+      JOIN nexus_users w ON w.id=s.worker_id
       WHERE m.client_id=?
       ORDER BY CASE s.status WHEN 'submitted' THEN 0 ELSE 1 END, s.created_at DESC
     `).bind(user.id).all() : Promise.resolve({results:[]})
@@ -755,7 +755,7 @@ async function currentUser(request, db) {
   if (!token) return null;
   const row = await db.prepare(`
     SELECT u.id,u.name,u.email,u.role,u.created_at
-    FROM sessions s JOIN users u ON u.id=s.user_id
+    FROM nexus_sessions s JOIN nexus_users u ON u.id=s.user_id
     WHERE s.token=? AND s.expires_at>CURRENT_TIMESTAMP
     LIMIT 1
   `).bind(token).first();
@@ -772,7 +772,7 @@ async function currentUser(request, db) {
 async function createSession(db, userId) {
   const token = randomHex(32);
   const expires = new Date(Date.now() + SESSION_DAYS * 86400000).toISOString().replace("T"," ").replace("Z","");
-  await db.prepare("INSERT INTO sessions(token,user_id,expires_at) VALUES(?,?,?)").bind(token,userId,expires).run();
+  await db.prepare("INSERT INTO nexus_sessions(token,user_id,expires_at) VALUES(?,?,?)").bind(token,userId,expires).run();
   return token;
 }
 
