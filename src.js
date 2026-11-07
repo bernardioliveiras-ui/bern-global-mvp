@@ -1,5 +1,6 @@
 const MIN_REWARD = 2.50;
 const DAILY_GOAL = 50.00;
+const MIN_WITHDRAWAL = 10.00;
 const PLATFORM_FEE_RATE = 0.20;
 const PAGE_SIZE = 20;
 const MAX_IMAGE_CHARS = 200000;
@@ -10,7 +11,7 @@ const FAVICON_DATA = "data:image/webp;base64,UklGRpwGAABXRUJQVlA4IJAGAACQHgCdASp
 let schemaPromise = null;
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
     try {
@@ -26,7 +27,15 @@ export default {
       }
 
       await ensureSchema(env.DB);
+      await ensureConfiguredAdmin(env.DB, env);
       await expireMissions(env.DB);
+
+      const path = url.pathname;
+
+      // Webhook externo do Asaas: autenticação própria, sem exigir Origin do navegador.
+      if (request.method === "POST" && path === "/webhooks/asaas") {
+        return await handleAsaasWebhook(request, env, ctx);
+      }
 
       if (request.method === "POST") {
         const origin = request.headers.get("origin");
@@ -37,7 +46,6 @@ export default {
       }
 
       const user = await currentUser(request, env.DB);
-      const path = url.pathname;
 
       if (request.method === "GET" && path === "/login") {
         if (user && !user.is_blocked) return redirect("/", request);
@@ -105,13 +113,17 @@ export default {
         return await handleMissionStatus(request, env.DB, user, Number(toggle[1]), toggle[2] === "open" ? "open" : "closed");
       }
 
-      if (request.method === "POST" && path === "/admin/claim") {
-        return await handleAdminClaim(request, env.DB, user);
+      if (request.method === "POST" && path === "/wallet/pix/create") {
+        return await handleCreatePixDeposit(request, env, user);
+      }
+
+      if (request.method === "POST" && path === "/wallet/withdraw/request") {
+        return await handleWithdrawalRequest(request, env.DB, user);
       }
 
       const adminUser = path.match(/^\/admin\/users\/(\d+)\/(block|unblock|credit)$/);
       if (request.method === "POST" && adminUser) {
-        return await handleAdminUserAction(request, env.DB, user, Number(adminUser[1]), adminUser[2]);
+        return await handleAdminUserAction(request, env, user, Number(adminUser[1]), adminUser[2]);
       }
 
       const adminMission = path.match(/^\/admin\/missions\/(\d+)\/close$/);
@@ -119,8 +131,17 @@ export default {
         return await handleAdminMissionClose(request, env.DB, user, Number(adminMission[1]));
       }
 
+      const adminWithdrawal = path.match(/^\/admin\/withdrawals\/(\d+)\/(approve|reject|paid)$/);
+      if (request.method === "POST" && adminWithdrawal) {
+        return await handleAdminWithdrawal(request, env.DB, user, Number(adminWithdrawal[1]), adminWithdrawal[2]);
+      }
+
+      if (request.method === "POST" && path === "/admin/asaas/reconcile") {
+        return await handleAdminAsaasReconcile(request, env, user);
+      }
+
       if (request.method === "GET" && path === "/") {
-        return await renderDashboard(request, env.DB, user, url);
+        return await renderDashboard(request, env, user, url);
       }
 
       return redirect("/", request);
@@ -230,33 +251,83 @@ async function ensureSchema(db) {
           ip_hash TEXT,
           created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )`,
+        `CREATE TABLE IF NOT EXISTS nexus_pix_deposits (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL,
+          external_ref TEXT NOT NULL UNIQUE,
+          asaas_customer_id TEXT,
+          asaas_payment_id TEXT UNIQUE,
+          amount REAL NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending',
+          pix_payload TEXT,
+          qr_image TEXT,
+          expiration_date TEXT,
+          credited_at TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )`,
+        `CREATE TABLE IF NOT EXISTS nexus_asaas_events (
+          event_id TEXT PRIMARY KEY,
+          event_type TEXT,
+          payment_id TEXT,
+          payload TEXT,
+          status TEXT NOT NULL DEFAULT 'pending',
+          error TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          processed_at TEXT
+        )`,
+        `CREATE TABLE IF NOT EXISTS nexus_withdrawals (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL,
+          amount REAL NOT NULL,
+          pix_key_type TEXT NOT NULL,
+          pix_key TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending',
+          request_ref TEXT NOT NULL UNIQUE,
+          reviewed_by INTEGER,
+          reviewed_at TEXT,
+          paid_at TEXT,
+          admin_note TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )`,
         `CREATE INDEX IF NOT EXISTS idx_nexus_missions_status ON nexus_missions(status, created_at)`,
         `CREATE INDEX IF NOT EXISTS idx_nexus_submissions_worker ON nexus_submissions(worker_id, created_at)`,
         `CREATE INDEX IF NOT EXISTS idx_nexus_submissions_mission ON nexus_submissions(mission_id, status)`,
         `CREATE INDEX IF NOT EXISTS idx_nexus_wallet_user ON nexus_wallet_ledger(user_id, created_at)`,
         `CREATE INDEX IF NOT EXISTS idx_nexus_client_ledger_user ON nexus_client_ledger(user_id, created_at)`,
         `CREATE INDEX IF NOT EXISTS idx_nexus_audit_created ON nexus_audit_log(created_at)`,
-        `CREATE INDEX IF NOT EXISTS idx_nexus_audit_user ON nexus_audit_log(user_id, created_at)`
+        `CREATE INDEX IF NOT EXISTS idx_nexus_audit_user ON nexus_audit_log(user_id, created_at)`,
+        `CREATE INDEX IF NOT EXISTS idx_nexus_pix_user ON nexus_pix_deposits(user_id, created_at)`,
+        `CREATE INDEX IF NOT EXISTS idx_nexus_pix_status ON nexus_pix_deposits(status, created_at)`,
+        `CREATE INDEX IF NOT EXISTS idx_nexus_withdraw_user ON nexus_withdrawals(user_id, created_at)`,
+        `CREATE INDEX IF NOT EXISTS idx_nexus_withdraw_status ON nexus_withdrawals(status, created_at)`
       ];
       await db.batch(statements.map(sql => db.prepare(sql)));
 
       await ensureColumn(db, "nexus_users", "is_admin", "INTEGER NOT NULL DEFAULT 0");
       await ensureColumn(db, "nexus_users", "is_blocked", "INTEGER NOT NULL DEFAULT 0");
+      await ensureColumn(db, "nexus_users", "cpf_cnpj", "TEXT");
+      await ensureColumn(db, "nexus_users", "asaas_customer_id", "TEXT");
       await ensureColumn(db, "nexus_missions", "deadline", "TEXT");
       await ensureColumn(db, "nexus_missions", "estimated_minutes", "INTEGER NOT NULL DEFAULT 5");
       await ensureColumn(db, "nexus_missions", "fee_rate", "REAL NOT NULL DEFAULT 0.20");
       await ensureColumn(db, "nexus_missions", "final_cost", "REAL NOT NULL DEFAULT 0");
       await ensureColumn(db, "nexus_missions", "reserved_remaining", "REAL NOT NULL DEFAULT 0");
       await ensureColumn(db, "nexus_missions", "funded", "INTEGER NOT NULL DEFAULT 0");
+      await ensureColumn(db, "nexus_missions", "mission_ref", "TEXT");
 
-      // Missões antigas da v0.3 não tinham reserva financeira; fechamos só essas.
+      await db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_nexus_mission_ref ON nexus_missions(mission_ref) WHERE mission_ref IS NOT NULL").run();
+
+      // Missões antigas sem reserva financeira ficam fechadas para não consumir saldo fictício.
       await db.prepare("UPDATE nexus_missions SET status='closed' WHERE funded=0 AND status='open'").run();
 
-      // Garante carteira para contratantes antigos.
       await db.prepare(`
         INSERT OR IGNORE INTO nexus_client_wallet(user_id,available,reserved)
         SELECT id,0,0 FROM nexus_users WHERE role IN ('client','both')
       `).run();
+
+      // Limpeza leve de rate limits vencidos.
+      await db.prepare("DELETE FROM nexus_rate_limits WHERE reset_at<?").bind(Date.now()-86400000).run();
 
       return true;
     })().catch(err => {
@@ -275,6 +346,333 @@ async function ensureColumn(db, table, column, definition) {
 
 async function ensureClientWallet(db, userId) {
   await db.prepare("INSERT OR IGNORE INTO nexus_client_wallet(user_id,available,reserved) VALUES(?,0,0)").bind(userId).run();
+}
+
+async function ensureConfiguredAdmin(db, env) {
+  const email=clean(env.ADMIN_EMAIL||"",160).toLowerCase();
+  if(!email) return;
+  // Quando ADMIN_EMAIL está configurado, ele é a fonte de verdade:
+  // remove privilégios antigos concedidos por versões anteriores e mantém somente o e-mail definido no Worker.
+  await db.prepare("UPDATE nexus_users SET is_admin=CASE WHEN lower(email)=? THEN 1 ELSE 0 END").bind(email).run();
+}
+
+function asaasConfigured(env) {
+  return !!String(env.ASAAS_API_KEY||"").trim();
+}
+
+function asaasWebhookConfigured(env) {
+  return !!String(env.ASAAS_WEBHOOK_TOKEN||"").trim();
+}
+
+function asaasBase(env) {
+  return String(env.ASAAS_ENV||"sandbox").toLowerCase()==="production"
+    ? "https://api.asaas.com"
+    : "https://api-sandbox.asaas.com";
+}
+
+async function asaasRequest(env, path, options={}) {
+  if(!asaasConfigured(env)) throw new Error("Integração Asaas ainda não configurada.");
+  const headers={
+    "accept":"application/json",
+    "access_token":String(env.ASAAS_API_KEY),
+    "User-Agent":"BernNexus/0.5.0",
+    ...(options.body?{"content-type":"application/json"}:{}),
+    ...(options.headers||{})
+  };
+  const res=await fetch(asaasBase(env)+path,{...options,headers});
+  let data={};
+  try{data=await res.json()}catch{}
+  if(!res.ok) {
+    const msg=data?.errors?.[0]?.description||data?.message||`Asaas HTTP ${res.status}`;
+    throw new Error(msg);
+  }
+  return data;
+}
+
+function digitsOnly(value) {
+  return String(value||"").replace(/\D/g,"");
+}
+
+function validCpfCnpj(value) {
+  const d=digitsOnly(value);
+  return d.length===11||d.length===14;
+}
+
+function normalizePixKey(type,value) {
+  const t=String(type||"").toUpperCase();
+  let v=String(value||"").trim();
+  if(t==="CPF"||t==="CNPJ"||t==="PHONE") v=digitsOnly(v);
+  if(t==="EMAIL") v=v.toLowerCase();
+  return v.slice(0,180);
+}
+
+function validPixKey(type,value) {
+  const t=String(type||"").toUpperCase();
+  const v=normalizePixKey(t,value);
+  if(t==="CPF") return /^\d{11}$/.test(v);
+  if(t==="CNPJ") return /^\d{14}$/.test(v);
+  if(t==="EMAIL") return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+  if(t==="PHONE") return /^\d{10,13}$/.test(v);
+  if(t==="EVP") return /^[a-zA-Z0-9-]{20,80}$/.test(v);
+  return false;
+}
+
+async function ensureAsaasCustomer(env, db, user, cpfCnpj) {
+  const current=await db.prepare("SELECT asaas_customer_id FROM nexus_users WHERE id=? LIMIT 1").bind(user.id).first();
+  if(current?.asaas_customer_id) return String(current.asaas_customer_id);
+
+  const cpf=digitsOnly(cpfCnpj);
+  if(!validCpfCnpj(cpf)) throw new Error("Informe um CPF ou CNPJ válido para gerar a cobrança PIX.");
+
+  const externalRef=`nexus-user-${user.id}`;
+  const found=await asaasRequest(env,`/v3/customers?externalReference=${encodeURIComponent(externalRef)}&limit=1`,{method:"GET"});
+  let customerId=found?.data?.[0]?.id||"";
+
+  if(!customerId) {
+    const created=await asaasRequest(env,"/v3/customers",{
+      method:"POST",
+      body:JSON.stringify({
+        name:user.name,
+        cpfCnpj:cpf,
+        email:user.email,
+        externalReference:externalRef,
+        notificationDisabled:true
+      })
+    });
+    customerId=created?.id||"";
+  }
+
+  if(!customerId) throw new Error("O Asaas não retornou o identificador do cliente.");
+
+  // Por minimização de dados, não persistimos CPF/CNPJ no D1.
+  await db.prepare("UPDATE nexus_users SET asaas_customer_id=? WHERE id=?")
+    .bind(customerId,user.id).run();
+  return customerId;
+}
+
+async function createPixDepositCharge(env, db, user, amount, cpfCnpj) {
+  const existing=await db.prepare(`
+    SELECT id,status,asaas_payment_id,qr_image FROM nexus_pix_deposits
+    WHERE user_id=? AND status IN ('creating','pending') AND abs(amount-?)<0.001
+      AND created_at>=datetime('now','-10 minutes')
+    ORDER BY id DESC LIMIT 1
+  `).bind(user.id,amount).first();
+
+  if(existing) {
+    if(existing.status==="pending"&&existing.asaas_payment_id&&!existing.qr_image) {
+      try {
+        const qr=await asaasRequest(env,`/v3/payments/${encodeURIComponent(existing.asaas_payment_id)}/pixQrCode`,{method:"GET"});
+        await db.prepare(`
+          UPDATE nexus_pix_deposits SET pix_payload=?,qr_image=?,expiration_date=?,updated_at=CURRENT_TIMESTAMP WHERE id=?
+        `).bind(String(qr?.payload||""),qr?.encodedImage?`data:image/png;base64,${qr.encodedImage}`:"",String(qr?.expirationDate||""),existing.id).run();
+      } catch {}
+    }
+    return Number(existing.id);
+  }
+
+  const externalRef=`nexus-pix-${user.id}-${Date.now()}-${randomHex(4)}`;
+  const intent=await db.prepare(`
+    INSERT INTO nexus_pix_deposits(user_id,external_ref,amount,status)
+    SELECT ?,?,?,'creating'
+    WHERE NOT EXISTS(
+      SELECT 1 FROM nexus_pix_deposits
+      WHERE user_id=? AND status IN ('creating','pending') AND abs(amount-?)<0.001
+        AND created_at>=datetime('now','-10 minutes')
+    )
+  `).bind(user.id,externalRef,amount,user.id,amount).run();
+
+  if(Number(intent.meta?.changes||0)<1) {
+    const recent=await db.prepare(`
+      SELECT id FROM nexus_pix_deposits
+      WHERE user_id=? AND status IN ('creating','pending') AND abs(amount-?)<0.001
+        AND created_at>=datetime('now','-10 minutes')
+      ORDER BY id DESC LIMIT 1
+    `).bind(user.id,amount).first();
+    if(recent) return Number(recent.id);
+    throw new Error("Já existe uma cobrança semelhante sendo processada.");
+  }
+
+  const depositId=Number(intent.meta?.last_row_id||0);
+  if(!depositId) throw new Error("Não foi possível iniciar a cobrança PIX.");
+
+  try {
+    const customerId=await ensureAsaasCustomer(env,db,user,cpfCnpj);
+    let payment=null;
+    try {
+      payment=await asaasRequest(env,"/v3/lean/payments",{
+        method:"POST",
+        body:JSON.stringify({
+          customer:customerId,
+          billingType:"PIX",
+          value:amount,
+          dueDate:datePlusDays(1),
+          externalReference:externalRef,
+          description:"Crédito de saldo Bern Nexus"
+        })
+      });
+    } catch(createError) {
+      // Se houve timeout após o Asaas criar a cobrança, recuperamos pelo externalReference
+      // antes de tentar criar outra e gerar duplicidade.
+      try {
+        const found=await asaasRequest(env,`/v3/lean/payments?externalReference=${encodeURIComponent(externalRef)}&limit=1`,{method:"GET"});
+        payment=found?.data?.[0]||null;
+      } catch {}
+      if(!payment?.id) throw createError;
+    }
+
+    if(!payment?.id) throw new Error("Não foi possível criar a cobrança PIX.");
+
+    await db.prepare(`
+      UPDATE nexus_pix_deposits
+      SET asaas_customer_id=?,asaas_payment_id=?,status='pending',updated_at=CURRENT_TIMESTAMP
+      WHERE id=? AND status='creating'
+    `).bind(customerId,payment.id,depositId).run();
+
+    const qr=await asaasRequest(env,`/v3/payments/${encodeURIComponent(payment.id)}/pixQrCode`,{method:"GET"});
+    const image=qr?.encodedImage?`data:image/png;base64,${qr.encodedImage}`:"";
+    const payload=String(qr?.payload||"");
+    const expiration=String(qr?.expirationDate||"");
+
+    await db.prepare(`
+      UPDATE nexus_pix_deposits
+      SET pix_payload=?,qr_image=?,expiration_date=?,updated_at=CURRENT_TIMESTAMP
+      WHERE id=?
+    `).bind(payload,image,expiration,depositId).run();
+
+    return depositId;
+  } catch(e) {
+    await db.prepare(`
+      UPDATE nexus_pix_deposits SET status='error',updated_at=CURRENT_TIMESTAMP
+      WHERE id=? AND status='creating'
+    `).bind(depositId).run();
+    throw e;
+  }
+}
+
+async function creditPixPayment(db, payment) {
+  const paymentId=String(payment?.id||"");
+  if(!paymentId) return false;
+
+  const dep=await db.prepare("SELECT * FROM nexus_pix_deposits WHERE asaas_payment_id=? LIMIT 1").bind(paymentId).first();
+  if(!dep||dep.status!=="pending") return false;
+
+  const value=roundMoney(Number(payment?.value||0));
+  const expected=roundMoney(Number(dep.amount||0));
+  if(Math.abs(value-expected)>0.001) throw new Error("Valor confirmado no Asaas difere da cobrança registrada.");
+
+  const status=String(payment?.status||"").toUpperCase();
+  if(!["RECEIVED","CONFIRMED"].includes(status)) return false;
+  if(String(payment?.billingType||"").toUpperCase()!=="PIX") throw new Error("Cobrança confirmada não é PIX.");
+
+  const fee=roundMoney(Math.max(0,value-Number(payment?.netValue??value)));
+  const source=`asaas:${paymentId}`;
+  const feeSource=`asaas_fee:${paymentId}`;
+
+  const result=await db.batch([
+    db.prepare("INSERT OR IGNORE INTO nexus_client_wallet(user_id,available,reserved) VALUES(?,0,0)").bind(dep.user_id),
+    db.prepare(`
+      INSERT OR IGNORE INTO nexus_client_ledger(user_id,delta_available,delta_reserved,type,source_ref,description)
+      SELECT user_id,amount,0,'pix_deposit',?,'Crédito confirmado via PIX Asaas'
+      FROM nexus_pix_deposits WHERE asaas_payment_id=? AND status='pending'
+    `).bind(source,paymentId),
+    db.prepare(`
+      UPDATE nexus_client_wallet
+      SET available=available+(SELECT amount FROM nexus_pix_deposits WHERE asaas_payment_id=?),
+          updated_at=CURRENT_TIMESTAMP
+      WHERE user_id=(SELECT user_id FROM nexus_pix_deposits WHERE asaas_payment_id=? AND status='pending')
+        AND EXISTS(SELECT 1 FROM nexus_client_ledger WHERE source_ref=?)
+    `).bind(paymentId,paymentId,source),
+    db.prepare(`
+      INSERT OR IGNORE INTO nexus_platform_ledger(amount,mission_id,submission_id,source_ref,description)
+      SELECT ?,NULL,NULL,?,'Taxa de processamento Asaas'
+      WHERE ?>0 AND EXISTS(SELECT 1 FROM nexus_pix_deposits WHERE asaas_payment_id=? AND status='pending')
+    `).bind(-fee,feeSource,fee,paymentId),
+    db.prepare(`
+      UPDATE nexus_pix_deposits
+      SET status='paid',credited_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
+      WHERE asaas_payment_id=? AND status='pending'
+        AND EXISTS(SELECT 1 FROM nexus_client_ledger WHERE source_ref=?)
+    `).bind(paymentId,source)
+  ]);
+
+  return Number(result?.[4]?.meta?.changes||0)>0;
+}
+
+async function reversePixPayment(db, paymentId) {
+  const dep=await db.prepare("SELECT * FROM nexus_pix_deposits WHERE asaas_payment_id=? LIMIT 1").bind(paymentId).first();
+  if(!dep||dep.status!=="paid") return false;
+
+  const source=`asaas_refund:${paymentId}`;
+  const result=await db.batch([
+    db.prepare(`
+      INSERT OR IGNORE INTO nexus_client_ledger(user_id,delta_available,delta_reserved,type,source_ref,description)
+      SELECT user_id,-amount,0,'pix_refund',?,'Estorno PIX confirmado pelo Asaas'
+      FROM nexus_pix_deposits WHERE asaas_payment_id=? AND status='paid'
+    `).bind(source,paymentId),
+    db.prepare(`
+      UPDATE nexus_client_wallet
+      SET available=available-(SELECT amount FROM nexus_pix_deposits WHERE asaas_payment_id=?),
+          updated_at=CURRENT_TIMESTAMP
+      WHERE user_id=(SELECT user_id FROM nexus_pix_deposits WHERE asaas_payment_id=? AND status='paid')
+        AND EXISTS(SELECT 1 FROM nexus_client_ledger WHERE source_ref=?)
+    `).bind(paymentId,paymentId,source),
+    db.prepare(`
+      UPDATE nexus_pix_deposits
+      SET status='refunded',updated_at=CURRENT_TIMESTAMP
+      WHERE asaas_payment_id=? AND status='paid'
+        AND EXISTS(SELECT 1 FROM nexus_client_ledger WHERE source_ref=?)
+    `).bind(paymentId,source)
+  ]);
+  return Number(result?.[2]?.meta?.changes||0)>0;
+}
+
+async function processAsaasEvent(env, eventId) {
+  const row=await env.DB.prepare("SELECT * FROM nexus_asaas_events WHERE event_id=? LIMIT 1").bind(eventId).first();
+  if(!row||row.status==="processed") return;
+
+  try {
+    const payload=JSON.parse(row.payload||"{}");
+    const paymentId=String(payload?.payment?.id||row.payment_id||"");
+    const type=String(row.event_type||"");
+
+    if(["PAYMENT_RECEIVED","PAYMENT_CONFIRMED"].includes(type)&&paymentId) {
+      const payment=await asaasRequest(env,`/v3/payments/${encodeURIComponent(paymentId)}`,{method:"GET"});
+      await creditPixPayment(env.DB,payment);
+    } else if(type==="PAYMENT_REFUNDED"&&paymentId) {
+      const payment=await asaasRequest(env,`/v3/payments/${encodeURIComponent(paymentId)}`,{method:"GET"});
+      if(String(payment?.status||"").toUpperCase()==="REFUNDED") await reversePixPayment(env.DB,paymentId);
+    } else if(["PAYMENT_PARTIALLY_REFUNDED","PAYMENT_CHARGEBACK_REQUESTED"].includes(type)&&paymentId) {
+      await env.DB.prepare(`
+        UPDATE nexus_pix_deposits SET status='review_required',updated_at=CURRENT_TIMESTAMP
+        WHERE asaas_payment_id=? AND status IN ('paid','pending')
+      `).bind(paymentId).run();
+    }
+
+    await env.DB.prepare(`
+      UPDATE nexus_asaas_events SET status='processed',processed_at=CURRENT_TIMESTAMP,error=NULL WHERE event_id=?
+    `).bind(eventId).run();
+  } catch(e) {
+    await env.DB.prepare("UPDATE nexus_asaas_events SET status='error',error=? WHERE event_id=?")
+      .bind(clean(String(e?.message||e),500),eventId).run();
+  }
+}
+
+async function reconcilePendingAsaas(env, limit=20) {
+  if(!asaasConfigured(env)) return {checked:0,credited:0};
+  const rows=await env.DB.prepare(`
+    SELECT asaas_payment_id FROM nexus_pix_deposits
+    WHERE status='pending' AND asaas_payment_id IS NOT NULL
+    ORDER BY id ASC LIMIT ?
+  `).bind(Math.max(1,Math.min(20,limit))).all();
+
+  let credited=0;
+  for(const r of (rows.results||[])) {
+    try {
+      const payment=await asaasRequest(env,`/v3/payments/${encodeURIComponent(r.asaas_payment_id)}`,{method:"GET"});
+      if(await creditPixPayment(env.DB,payment)) credited++;
+    } catch {}
+  }
+  return {checked:(rows.results||[]).length,credited};
 }
 
 function roundMoney(v) {
@@ -321,74 +719,102 @@ async function expireMissions(db) {
 }
 
 async function closeMissionFunds(db, missionId, clientId, reason = "Missão fechada") {
-  const m = await db.prepare("SELECT * FROM nexus_missions WHERE id=? AND client_id=? LIMIT 1").bind(missionId,clientId).first();
-  if (!m) return false;
-  if (m.status === "closed") return true;
+  const actionRef=`close_release:${missionId}:${Date.now()}:${randomHex(3)}`;
+  const desc=clean(`${reason}: saldo não utilizado liberado`,180);
+  const calc = `
+    SELECT m.*,
+      ROUND(m.reward*(1+m.fee_rate),2) slot_cost,
+      MIN(
+        COALESCE(w.reserved,0),
+        MAX(0,ROUND(m.reserved_remaining -
+          (SELECT COUNT(*) FROM nexus_submissions s
+           WHERE s.mission_id=m.id AND s.status IN ('started','submitted'))
+          * ROUND(m.reward*(1+m.fee_rate),2),2))
+      ) release_amount
+    FROM nexus_missions m
+    JOIN nexus_client_wallet w ON w.user_id=m.client_id
+    WHERE m.id=? AND m.client_id=? AND m.status='open'
+  `;
 
-  await ensureClientWallet(db, clientId);
-  const active = await db.prepare(`
-    SELECT COUNT(*) c FROM nexus_submissions
-    WHERE mission_id=? AND status IN ('started','submitted')
-  `).bind(missionId).first();
+  const result=await db.batch([
+    db.prepare(`
+      WITH c AS (${calc})
+      INSERT INTO nexus_client_ledger(user_id,delta_available,delta_reserved,type,source_ref,description)
+      SELECT client_id,release_amount,-release_amount,'mission_release',?,?
+      FROM c WHERE release_amount>0
+    `).bind(missionId,clientId,actionRef,desc),
+    db.prepare(`
+      UPDATE nexus_client_wallet
+      SET available=available+COALESCE((SELECT delta_available FROM nexus_client_ledger WHERE source_ref=?),0),
+          reserved=MAX(0,reserved+COALESCE((SELECT delta_reserved FROM nexus_client_ledger WHERE source_ref=?),0)),
+          updated_at=CURRENT_TIMESTAMP
+      WHERE user_id=? AND EXISTS(SELECT 1 FROM nexus_missions WHERE id=? AND client_id=? AND status='open')
+    `).bind(actionRef,actionRef,clientId,missionId,clientId),
+    db.prepare(`
+      UPDATE nexus_missions
+      SET reserved_remaining=MAX(0,reserved_remaining-COALESCE((SELECT delta_available FROM nexus_client_ledger WHERE source_ref=?),0)),
+          status='closed'
+      WHERE id=? AND client_id=? AND status='open'
+    `).bind(actionRef,missionId,clientId)
+  ]);
 
-  const slotCost = perSlotCost(m.reward, m.fee_rate);
-  const keep = roundMoney(Number(active?.c || 0) * slotCost);
-  const current = roundMoney(Number(m.reserved_remaining || 0));
-  const release = roundMoney(Math.max(0, current - keep));
-
-  const statements = [
-    db.prepare("UPDATE nexus_missions SET status='closed',reserved_remaining=? WHERE id=?").bind(Math.min(current,keep),missionId)
-  ];
-
-  if (release > 0) {
-    statements.push(
-      db.prepare(`
-        UPDATE nexus_client_wallet
-        SET available=available+?, reserved=MAX(0,reserved-?), updated_at=CURRENT_TIMESTAMP
-        WHERE user_id=?
-      `).bind(release,release,clientId),
-      db.prepare(`
-        INSERT INTO nexus_client_ledger(user_id,delta_available,delta_reserved,type,source_ref,description)
-        VALUES(?,?,?,'mission_release',?,?)
-      `).bind(clientId,release,-release,`release:${missionId}:${Date.now()}:${randomHex(3)}`,`${reason}: saldo não utilizado liberado`)
-    );
-  }
-
-  await db.batch(statements);
-  return true;
+  return Number(result?.[2]?.meta?.changes||0)>0;
 }
 
 async function reopenMissionFunds(db, missionId, clientId) {
-  const m = await db.prepare("SELECT * FROM nexus_missions WHERE id=? AND client_id=? LIMIT 1").bind(missionId,clientId).first();
-  if (!m) return {ok:false,message:"Missão não encontrada."};
-  if (m.deadline && String(m.deadline).slice(0,10) < todayDate()) return {ok:false,message:"O prazo dessa missão já terminou."};
-  if (m.status === "open") return {ok:true};
+  const actionRef=`reopen:${missionId}:${Date.now()}:${randomHex(3)}`;
+  const calc = `
+    SELECT m.id,m.client_id,m.status,m.deadline,m.reserved_remaining,
+      ROUND(
+        MAX(0,m.slots-(SELECT COUNT(*) FROM nexus_submissions s WHERE s.mission_id=m.id AND s.status='approved'))
+        * ROUND(m.reward*(1+m.fee_rate),2),2
+      ) desired,
+      MAX(0,ROUND(
+        MAX(0,m.slots-(SELECT COUNT(*) FROM nexus_submissions s WHERE s.mission_id=m.id AND s.status='approved'))
+        * ROUND(m.reward*(1+m.fee_rate),2) - m.reserved_remaining,2
+      )) needed
+    FROM nexus_missions m
+    WHERE m.id=? AND m.client_id=? AND m.status='closed'
+      AND (m.deadline IS NULL OR date(m.deadline)>=date('now'))
+  `;
 
-  const approved = await db.prepare("SELECT COUNT(*) c FROM nexus_submissions WHERE mission_id=? AND status='approved'").bind(missionId).first();
-  const desired = roundMoney(Math.max(0, Number(m.slots) - Number(approved?.c || 0)) * perSlotCost(m.reward,m.fee_rate));
-  const current = roundMoney(Number(m.reserved_remaining || 0));
-  const needed = roundMoney(Math.max(0, desired - current));
-
-  await ensureClientWallet(db, clientId);
-  if (needed > 0) {
-    const r = await db.prepare(`
-      UPDATE nexus_client_wallet SET available=available-?,reserved=reserved+?,updated_at=CURRENT_TIMESTAMP
-      WHERE user_id=? AND available>=?
-    `).bind(needed,needed,clientId,needed).run();
-    if (!r.meta?.changes) return {ok:false,message:`Saldo insuficiente para reabrir. Necessário: ${brl(needed)}.`};
-
-    await db.prepare(`
+  const result=await db.batch([
+    db.prepare(`
+      WITH c AS (${calc})
       INSERT INTO nexus_client_ledger(user_id,delta_available,delta_reserved,type,source_ref,description)
-      VALUES(?,?,?,'mission_rereserve',?,?)
-    `).bind(clientId,-needed,needed,`reopen:${missionId}:${Date.now()}`,`Reserva para reabrir missão #${missionId}`).run();
-  }
+      SELECT c.client_id,-c.needed,c.needed,'mission_rereserve',?,'Reserva para reabrir missão'
+      FROM c JOIN nexus_client_wallet w ON w.user_id=c.client_id
+      WHERE c.needed>0 AND w.available>=c.needed
+    `).bind(missionId,clientId,actionRef),
+    db.prepare(`
+      WITH c AS (${calc})
+      UPDATE nexus_client_wallet
+      SET available=available-COALESCE((SELECT needed FROM c),0),
+          reserved=reserved+COALESCE((SELECT needed FROM c),0),
+          updated_at=CURRENT_TIMESTAMP
+      WHERE user_id=? AND EXISTS(
+        SELECT 1 FROM c WHERE needed=0 OR EXISTS(SELECT 1 FROM nexus_client_ledger WHERE source_ref=?)
+      )
+    `).bind(missionId,clientId,clientId,actionRef),
+    db.prepare(`
+      WITH c AS (${calc})
+      UPDATE nexus_missions
+      SET status='open',reserved_remaining=(SELECT desired FROM c)
+      WHERE id=? AND client_id=? AND status='closed'
+        AND EXISTS(SELECT 1 FROM c WHERE needed=0 OR EXISTS(SELECT 1 FROM nexus_client_ledger WHERE source_ref=?))
+    `).bind(missionId,clientId,missionId,clientId,actionRef)
+  ]);
 
-  await db.prepare("UPDATE nexus_missions SET status='open',reserved_remaining=? WHERE id=?").bind(desired,missionId).run();
-  return {ok:true};
+  if(Number(result?.[2]?.meta?.changes||0)>0) return {ok:true};
+
+  const m=await db.prepare("SELECT deadline FROM nexus_missions WHERE id=? AND client_id=? LIMIT 1").bind(missionId,clientId).first();
+  if(!m) return {ok:false,message:"Missão não encontrada."};
+  if(m.deadline&&String(m.deadline).slice(0,10)<todayDate()) return {ok:false,message:"O prazo dessa missão já terminou."};
+  return {ok:false,message:"Saldo insuficiente para reabrir a missão."};
 }
 
 async function getWorkerWallet(db, userId) {
-  const [available,pending,total,today,entries] = await Promise.all([
+  const [available,pending,total,today,withdrawPending,entries] = await Promise.all([
     db.prepare("SELECT COALESCE(SUM(amount),0) v FROM nexus_wallet_ledger WHERE user_id=?").bind(userId).first(),
     db.prepare(`
       SELECT COALESCE(SUM(m.reward),0) v
@@ -401,8 +827,12 @@ async function getWorkerWallet(db, userId) {
       WHERE user_id=? AND type='mission_reward' AND date(created_at,'-3 hours')=date('now','-3 hours')
     `).bind(userId).first(),
     db.prepare(`
-      SELECT amount,type,description,created_at FROM nexus_wallet_ledger
-      WHERE user_id=? ORDER BY created_at DESC LIMIT 20
+      SELECT COALESCE(SUM(amount),0) v FROM nexus_withdrawals
+      WHERE user_id=? AND status IN ('pending','approved')
+    `).bind(userId).first(),
+    db.prepare(`
+      SELECT id,amount,type,description,created_at FROM nexus_wallet_ledger
+      WHERE user_id=? ORDER BY created_at DESC LIMIT 30
     `).bind(userId).all()
   ]);
   return {
@@ -410,6 +840,7 @@ async function getWorkerWallet(db, userId) {
     pending:Number(pending?.v||0),
     total:Number(total?.v||0),
     today:Number(today?.v||0),
+    withdrawal_pending:Number(withdrawPending?.v||0),
     entries:entries.results||[]
   };
 }
@@ -434,6 +865,30 @@ async function getClientWallet(db, userId) {
     spent:roundMoney(Number(spent?.v||0)),
     entries:entries.results||[]
   };
+}
+
+async function getUserWithdrawals(db,userId) {
+  const rows=await db.prepare(`
+    SELECT id,amount,pix_key_type,pix_key,status,created_at,reviewed_at,paid_at
+    FROM nexus_withdrawals WHERE user_id=? ORDER BY id DESC LIMIT 20
+  `).bind(userId).all();
+  return rows.results||[];
+}
+
+async function getUserPixDeposits(db,userId) {
+  const rows=await db.prepare(`
+    SELECT id,amount,status,expiration_date,created_at,credited_at
+    FROM nexus_pix_deposits WHERE user_id=? ORDER BY id DESC LIMIT 20
+  `).bind(userId).all();
+  return rows.results||[];
+}
+
+async function getPixDepositById(db,userId,id) {
+  if(!id) return null;
+  return await db.prepare(`
+    SELECT id,amount,status,pix_payload,qr_image,expiration_date,created_at,credited_at
+    FROM nexus_pix_deposits WHERE id=? AND user_id=? LIMIT 1
+  `).bind(id,userId).first();
 }
 
 async function getReputation(db, user) {
@@ -558,7 +1013,7 @@ async function getClientData(db,userId) {
 }
 
 async function getAdminData(db) {
-  const [users,missions,stats,platform] = await Promise.all([
+  const [users,missions,withdrawals,deposits,stats,platform] = await Promise.all([
     db.prepare(`
       SELECT u.id,u.name,u.email,u.role,u.is_admin,u.is_blocked,u.created_at,
              COALESCE(c.available,0) client_available,COALESCE(c.reserved,0) client_reserved
@@ -571,15 +1026,35 @@ async function getAdminData(db) {
       ORDER BY m.created_at DESC LIMIT 100
     `).all(),
     db.prepare(`
+      SELECT w.id,w.user_id,w.amount,w.pix_key_type,w.pix_key,w.status,w.created_at,u.name worker_name,u.email worker_email
+      FROM nexus_withdrawals w JOIN nexus_users u ON u.id=w.user_id
+      ORDER BY CASE w.status WHEN 'pending' THEN 0 WHEN 'approved' THEN 1 ELSE 2 END,w.id DESC LIMIT 100
+    `).all(),
+    db.prepare(`
+      SELECT p.id,p.user_id,p.amount,p.status,p.asaas_payment_id,p.created_at,p.credited_at,u.name client_name
+      FROM nexus_pix_deposits p JOIN nexus_users u ON u.id=p.user_id
+      ORDER BY p.id DESC LIMIT 100
+    `).all(),
+    db.prepare(`
       SELECT
         (SELECT COUNT(*) FROM nexus_users) users,
         (SELECT COUNT(*) FROM nexus_missions WHERE status='open' AND funded=1) open_missions,
         (SELECT COUNT(*) FROM nexus_submissions WHERE status='submitted') pending_reviews,
-        (SELECT COALESCE(SUM(reserved),0) FROM nexus_client_wallet) total_reserved
+        (SELECT COALESCE(SUM(reserved),0) FROM nexus_client_wallet) total_reserved,
+        (SELECT COUNT(*) FROM nexus_withdrawals WHERE status='pending') pending_withdrawals,
+        (SELECT COUNT(*) FROM nexus_pix_deposits WHERE status='pending') pending_pix,
+        (SELECT COALESCE(SUM(amount),0) FROM nexus_pix_deposits WHERE status='paid') pix_received
     `).first(),
     db.prepare("SELECT COALESCE(SUM(amount),0) v FROM nexus_platform_ledger").first()
   ]);
-  return {users:users.results||[],missions:missions.results||[],stats:stats||{},platform:Number(platform?.v||0)};
+  return {
+    users:users.results||[],
+    missions:missions.results||[],
+    withdrawals:withdrawals.results||[],
+    deposits:deposits.results||[],
+    stats:stats||{},
+    platform:Number(platform?.v||0)
+  };
 }
 
 function queryUrl(opts, changes={}) {
@@ -705,11 +1180,14 @@ async function handleLogin(request, db) {
 }
 
 async function handleLogout(request, db) {
-  const token = getCookie(request, "bn_session");
-  const user = token ? await currentUser(request,db) : null;
-  if (token) await db.prepare("DELETE FROM nexus_sessions WHERE token=?").bind(token).run();
+  const token=sessionTokenFromRequest(request);
+  const user=token?await currentUser(request,db):null;
+  if(token) {
+    const tokenHash=await sha256Hex("session:"+token);
+    await db.prepare("DELETE FROM nexus_sessions WHERE token=? OR token=?").bind(tokenHash,token).run();
+  }
   if(user) await auditSecurity(db,request,user.id,"logout","web");
-  return redirect("/login?msg=" + enc("Você saiu da conta."), request, expiredCookie());
+  return redirect("/login?msg="+enc("Você saiu da conta."),request,expiredCookie());
 }
 
 async function handleCreateMission(request, db, user) {
@@ -725,7 +1203,9 @@ async function handleCreateMission(request, db, user) {
   const estimated=Math.floor(Number(f.get("estimated_minutes")||5));
   const deadline=clean(f.get("deadline"),10);
   const image=String(f.get("image_data")||"");
+  const formToken=clean(f.get("form_token"),64);
 
+  if(!/^[a-f0-9]{32}$/i.test(formToken)) return redirect("/?view=create&err="+enc("Formulário expirado ou inválido. Reabra a tela de publicação."),request);
   if(title.length<5||description.length<10||instructions.length<10) return redirect("/?view=create&err="+enc("Preencha título, descrição e instruções com mais detalhes."),request);
   if(!Number.isFinite(reward)||reward<MIN_REWARD||reward>500) return redirect("/?view=create&err="+enc("A recompensa mínima é R$ 2,50."),request);
   if(!Number.isInteger(slots)||slots<1||slots>500) return redirect("/?view=create&err="+enc("Informe entre 1 e 500 vagas."),request);
@@ -734,34 +1214,47 @@ async function handleCreateMission(request, db, user) {
   if(image&&(!image.startsWith("data:image/jpeg;base64,")||image.length>MAX_IMAGE_CHARS)) return redirect("/?view=create&err="+enc("A imagem ficou grande demais."),request);
 
   const total=finalMissionCost(reward,slots,PLATFORM_FEE_RATE);
+  const missionRef=`mission:${user.id}:${formToken}`;
+  const ledgerRef=`mission_reserve:${missionRef}`;
   await ensureClientWallet(db,user.id);
 
-  const reserve=await db.prepare(`
-    UPDATE nexus_client_wallet
-    SET available=available-?,reserved=reserved+?,updated_at=CURRENT_TIMESTAMP
-    WHERE user_id=? AND available>=?
-  `).bind(total,total,user.id,total).run();
+  const result=await db.batch([
+    db.prepare(`
+      INSERT OR IGNORE INTO nexus_missions(
+        client_id,title,category,description,instructions,reward,slots,image_data,status,
+        deadline,estimated_minutes,fee_rate,final_cost,reserved_remaining,funded,mission_ref
+      )
+      SELECT ?,?,?,?,?,?,?,?,'open',?,?,?,?,?,1,?
+      FROM nexus_client_wallet w
+      WHERE w.user_id=? AND w.available>=?
+        AND NOT EXISTS(
+          SELECT 1 FROM nexus_pix_deposits p
+          WHERE p.user_id=w.user_id AND p.status='review_required'
+        )
+    `).bind(
+      user.id,title,category,description,instructions,reward,slots,image||null,
+      deadline,estimated,PLATFORM_FEE_RATE,total,total,missionRef,user.id,total
+    ),
+    db.prepare(`
+      UPDATE nexus_client_wallet
+      SET available=available-?,reserved=reserved+?,updated_at=CURRENT_TIMESTAMP
+      WHERE user_id=? AND EXISTS(SELECT 1 FROM nexus_missions WHERE mission_ref=?)
+        AND NOT EXISTS(SELECT 1 FROM nexus_client_ledger WHERE source_ref=?)
+    `).bind(total,total,user.id,missionRef,ledgerRef),
+    db.prepare(`
+      INSERT OR IGNORE INTO nexus_client_ledger(user_id,delta_available,delta_reserved,type,source_ref,description)
+      SELECT client_id,?,?, 'mission_reserve',?,?
+      FROM nexus_missions WHERE mission_ref=?
+    `).bind(-total,total,ledgerRef,`Custo final reservado: ${title}`,missionRef)
+  ]);
 
-  if(!reserve.meta?.changes) {
+  if(Number(result?.[0]?.meta?.changes||0)<1) {
+    const already=await db.prepare("SELECT id FROM nexus_missions WHERE mission_ref=? LIMIT 1").bind(missionRef).first();
+    if(already) return redirect("/?view=client&msg="+enc("Essa publicação já tinha sido processada. Nenhum saldo foi reservado novamente."),request);
+    const review=await db.prepare("SELECT id FROM nexus_pix_deposits WHERE user_id=? AND status='review_required' LIMIT 1").bind(user.id).first();
+    if(review) return redirect("/?view=create&err="+enc("Sua conta está em revisão financeira por causa de um estorno parcial ou contestação. Resolva isso com o administrador antes de publicar novas missões."),request);
     const w=await db.prepare("SELECT available FROM nexus_client_wallet WHERE user_id=?").bind(user.id).first();
     return redirect("/?view=create&err="+enc(`Saldo insuficiente. Custo final: ${brl(total)}. Saldo disponível: ${brl(w?.available||0)}.`),request);
-  }
-
-  try {
-    const r=await db.prepare(`
-      INSERT INTO nexus_missions(
-        client_id,title,category,description,instructions,reward,slots,image_data,status,
-        deadline,estimated_minutes,fee_rate,final_cost,reserved_remaining,funded
-      ) VALUES(?,?,?,?,?,?,?,?,'open',?,?,?,?,?,1)
-    `).bind(user.id,title,category,description,instructions,reward,slots,image||null,deadline,estimated,PLATFORM_FEE_RATE,total,total).run();
-    const missionId=Number(r.meta?.last_row_id||0);
-    await db.prepare(`
-      INSERT INTO nexus_client_ledger(user_id,delta_available,delta_reserved,type,source_ref,description)
-      VALUES(?,?,?,'mission_reserve',?,?)
-    `).bind(user.id,-total,total,`reserve:${missionId}:${Date.now()}`,`Custo final reservado: ${title}`).run();
-  } catch(e) {
-    await db.prepare("UPDATE nexus_client_wallet SET available=available+?,reserved=MAX(0,reserved-?) WHERE user_id=?").bind(total,total,user.id).run();
-    throw e;
   }
 
   return redirect("/?view=client&msg="+enc(`Missão publicada. Custo final reservado: ${brl(total)}.`),request);
@@ -770,45 +1263,88 @@ async function handleCreateMission(request, db, user) {
 async function handleStartMission(request, db, user, missionId) {
   if(!canWorker(user)) return redirect("/?err="+enc("Seu perfil não pode executar missões."),request);
 
-  const mission=await db.prepare("SELECT * FROM nexus_missions WHERE id=? LIMIT 1").bind(missionId).first();
-  if(!mission||mission.status!=="open"||Number(mission.funded||0)!==1) return redirect("/?err="+enc("Missão indisponível."),request);
-  if(mission.deadline&&String(mission.deadline).slice(0,10)<todayDate()) return redirect("/?err="+enc("O prazo dessa missão terminou."),request);
+  try {
+    const r=await db.prepare(`
+      INSERT INTO nexus_submissions(mission_id,worker_id,status)
+      SELECT m.id,?,'started'
+      FROM nexus_missions m
+      WHERE m.id=?
+        AND m.status='open' AND m.funded=1
+        AND (m.deadline IS NULL OR date(m.deadline)>=date('now'))
+        AND m.client_id<>?
+        AND NOT EXISTS(
+          SELECT 1 FROM nexus_submissions s0 WHERE s0.mission_id=m.id AND s0.worker_id=?
+        )
+        AND (
+          SELECT COUNT(*) FROM nexus_submissions s
+          WHERE s.mission_id=m.id AND s.status IN ('started','submitted','approved')
+        ) < m.slots
+    `).bind(user.id,missionId,user.id,user.id).run();
+
+    if(Number(r.meta?.changes||0)>0) {
+      return redirect("/?view=mine&msg="+enc("Missão aceita. Agora envie o trabalho."),request);
+    }
+  } catch(e) {
+    if(!String(e).includes("UNIQUE")) throw e;
+  }
+
+  const mission=await db.prepare("SELECT status,deadline,client_id FROM nexus_missions WHERE id=? LIMIT 1").bind(missionId).first();
+  if(!mission||mission.status!=="open") return redirect("/?err="+enc("Missão indisponível."),request);
   if(Number(mission.client_id)===Number(user.id)) return redirect("/?err="+enc("Você não pode executar sua própria missão."),request);
-
-  const occupied=await db.prepare("SELECT COUNT(*) c FROM nexus_submissions WHERE mission_id=? AND status IN ('started','submitted','approved')").bind(missionId).first();
-  if(Number(occupied?.c||0)>=Number(mission.slots)) return redirect("/?err="+enc("As vagas desta missão acabaram."),request);
-
-  const already=await db.prepare("SELECT id,status FROM nexus_submissions WHERE mission_id=? AND worker_id=? LIMIT 1").bind(missionId,user.id).first();
+  const already=await db.prepare("SELECT id FROM nexus_submissions WHERE mission_id=? AND worker_id=? LIMIT 1").bind(missionId,user.id).first();
   if(already) return redirect("/?view=mine&msg="+enc("Você já participou dessa missão."),request);
-
-  await db.prepare("INSERT INTO nexus_submissions(mission_id,worker_id,status) VALUES(?,?,'started')").bind(missionId,user.id).run();
-  return redirect("/?view=mine&msg="+enc("Missão aceita. Agora envie o trabalho."),request);
+  return redirect("/?err="+enc("As vagas desta missão acabaram ou o prazo terminou."),request);
 }
 
 async function handleCancelSubmission(request, db, user, submissionId) {
   if(!canWorker(user)) return redirect("/?view=mine&err="+enc("Perfil sem acesso."),request);
-  const s=await db.prepare(`
-    SELECT s.id,s.status,s.mission_id,m.client_id,m.status mission_status,m.reward,m.fee_rate,m.reserved_remaining
-    FROM nexus_submissions s JOIN nexus_missions m ON m.id=s.mission_id
-    WHERE s.id=? AND s.worker_id=? LIMIT 1
-  `).bind(submissionId,user.id).first();
-  if(!s||s.status!=="started") return redirect("/?view=mine&err="+enc("Essa participação não pode ser cancelada."),request);
 
-  await db.prepare("DELETE FROM nexus_submissions WHERE id=? AND worker_id=? AND status='started'").bind(submissionId,user.id).run();
+  const refundRef=`cancel_release:${submissionId}`;
+  const result=await db.batch([
+    db.prepare(`
+      INSERT OR IGNORE INTO nexus_client_ledger(user_id,delta_available,delta_reserved,type,source_ref,description)
+      SELECT m.client_id,
+             ROUND(m.reward*(1+m.fee_rate),2),
+             -ROUND(m.reward*(1+m.fee_rate),2),
+             'cancel_release',?,
+             'Participação cancelada: reserva liberada'
+      FROM nexus_submissions s JOIN nexus_missions m ON m.id=s.mission_id
+      WHERE s.id=? AND s.worker_id=? AND s.status='started'
+        AND m.status='closed'
+        AND m.reserved_remaining>=ROUND(m.reward*(1+m.fee_rate),2)
+        AND COALESCE((SELECT reserved FROM nexus_client_wallet WHERE user_id=m.client_id),0)>=ROUND(m.reward*(1+m.fee_rate),2)
+    `).bind(refundRef,submissionId,user.id),
+    db.prepare(`
+      UPDATE nexus_client_wallet
+      SET available=available+COALESCE((SELECT delta_available FROM nexus_client_ledger WHERE source_ref=?),0),
+          reserved=MAX(0,reserved+COALESCE((SELECT delta_reserved FROM nexus_client_ledger WHERE source_ref=?),0)),
+          updated_at=CURRENT_TIMESTAMP
+      WHERE user_id=(
+        SELECT m.client_id FROM nexus_submissions s JOIN nexus_missions m ON m.id=s.mission_id
+        WHERE s.id=? AND s.worker_id=? AND s.status='started' LIMIT 1
+      )
+        AND EXISTS(SELECT 1 FROM nexus_client_ledger WHERE source_ref=?)
+    `).bind(refundRef,refundRef,submissionId,user.id,refundRef),
+    db.prepare(`
+      UPDATE nexus_missions
+      SET reserved_remaining=MAX(0,reserved_remaining-COALESCE((SELECT delta_available FROM nexus_client_ledger WHERE source_ref=?),0))
+      WHERE id=(
+        SELECT mission_id FROM nexus_submissions WHERE id=? AND worker_id=? AND status='started'
+      )
+        AND EXISTS(SELECT 1 FROM nexus_client_ledger WHERE source_ref=?)
+    `).bind(refundRef,submissionId,user.id,refundRef),
+    db.prepare(`
+      DELETE FROM nexus_submissions
+      WHERE id=? AND worker_id=? AND status='started'
+        AND (
+          EXISTS(SELECT 1 FROM nexus_missions m WHERE m.id=nexus_submissions.mission_id AND m.status='open')
+          OR EXISTS(SELECT 1 FROM nexus_client_ledger WHERE source_ref=?)
+        )
+    `).bind(submissionId,user.id,refundRef)
+  ]);
 
-  if(s.mission_status==="closed") {
-    const amount=Math.min(roundMoney(Number(s.reserved_remaining||0)),perSlotCost(s.reward,s.fee_rate));
-    if(amount>0) {
-      await ensureClientWallet(db,s.client_id);
-      await db.batch([
-        db.prepare("UPDATE nexus_missions SET reserved_remaining=MAX(0,reserved_remaining-?) WHERE id=?").bind(amount,s.mission_id),
-        db.prepare("UPDATE nexus_client_wallet SET available=available+?,reserved=MAX(0,reserved-?),updated_at=CURRENT_TIMESTAMP WHERE user_id=?").bind(amount,amount,s.client_id),
-        db.prepare(`
-          INSERT INTO nexus_client_ledger(user_id,delta_available,delta_reserved,type,source_ref,description)
-          VALUES(?,?,?,'cancel_release',?,?)
-        `).bind(s.client_id,amount,-amount,`cancel:${submissionId}:${Date.now()}`,"Participação cancelada: reserva liberada")
-      ]);
-    }
+  if(Number(result?.[3]?.meta?.changes||0)<1) {
+    return redirect("/?view=mine&err="+enc("Essa participação não pode ser cancelada agora."),request);
   }
   return redirect("/?view=mine&msg="+enc("Participação cancelada."),request);
 }
@@ -838,62 +1374,114 @@ async function handleSubmitWork(request, db, user, submissionId) {
 async function handleReview(request, db, user, submissionId, action) {
   if(!canClient(user)) return redirect("/?view=client&err="+enc("Perfil sem acesso."),request);
 
-  const s=await db.prepare(`
-    SELECT s.id,s.worker_id,s.status,s.mission_id,m.reward,m.client_id,m.title,m.status mission_status,
-           m.fee_rate,m.reserved_remaining
-    FROM nexus_submissions s JOIN nexus_missions m ON m.id=s.mission_id
-    WHERE s.id=? AND m.client_id=? LIMIT 1
-  `).bind(submissionId,user.id).first();
-
-  if(!s) return redirect("/?view=client&err="+enc("Envio não encontrado."),request);
-  if(s.status!=="submitted") return redirect("/?view=client&err="+enc("Esse envio já foi revisado."),request);
-
-  const cost=perSlotCost(s.reward,s.fee_rate);
-  const fee=roundMoney(cost-Number(s.reward));
-
   if(action==="reject") {
-    await db.prepare("UPDATE nexus_submissions SET status='rejected',reviewed_at=CURRENT_TIMESTAMP WHERE id=? AND status='submitted'").bind(submissionId).run();
+    const releaseRef=`rejection_release:${submissionId}`;
+    const result=await db.batch([
+      db.prepare(`
+        INSERT OR IGNORE INTO nexus_client_ledger(user_id,delta_available,delta_reserved,type,source_ref,description)
+        SELECT m.client_id,
+               ROUND(m.reward*(1+m.fee_rate),2),
+               -ROUND(m.reward*(1+m.fee_rate),2),
+               'rejection_release',?,
+               'Trabalho rejeitado em missão fechada: reserva liberada'
+        FROM nexus_submissions s JOIN nexus_missions m ON m.id=s.mission_id
+        WHERE s.id=? AND s.status='submitted' AND m.client_id=? AND m.status='closed'
+          AND m.reserved_remaining>=ROUND(m.reward*(1+m.fee_rate),2)
+          AND COALESCE((SELECT reserved FROM nexus_client_wallet WHERE user_id=m.client_id),0)>=ROUND(m.reward*(1+m.fee_rate),2)
+      `).bind(releaseRef,submissionId,user.id),
+      db.prepare(`
+        UPDATE nexus_client_wallet
+        SET available=available+COALESCE((SELECT delta_available FROM nexus_client_ledger WHERE source_ref=?),0),
+            reserved=MAX(0,reserved+COALESCE((SELECT delta_reserved FROM nexus_client_ledger WHERE source_ref=?),0)),
+            updated_at=CURRENT_TIMESTAMP
+        WHERE user_id=?
+          AND EXISTS(SELECT 1 FROM nexus_client_ledger WHERE source_ref=?)
+          AND EXISTS(SELECT 1 FROM nexus_submissions WHERE id=? AND status='submitted')
+      `).bind(releaseRef,releaseRef,user.id,releaseRef,submissionId),
+      db.prepare(`
+        UPDATE nexus_missions
+        SET reserved_remaining=MAX(0,reserved_remaining-COALESCE((SELECT delta_available FROM nexus_client_ledger WHERE source_ref=?),0))
+        WHERE client_id=? AND id=(SELECT mission_id FROM nexus_submissions WHERE id=? AND status='submitted')
+          AND EXISTS(SELECT 1 FROM nexus_client_ledger WHERE source_ref=?)
+      `).bind(releaseRef,user.id,submissionId,releaseRef),
+      db.prepare(`
+        UPDATE nexus_submissions
+        SET status='rejected',reviewed_at=CURRENT_TIMESTAMP
+        WHERE id=? AND status='submitted'
+          AND EXISTS(SELECT 1 FROM nexus_missions WHERE id=nexus_submissions.mission_id AND client_id=?)
+      `).bind(submissionId,user.id)
+    ]);
 
-    // Se a missão já está fechada, essa vaga não será reutilizada e a reserva volta ao contratante.
-    if(s.mission_status==="closed") {
-      const refund=Math.min(cost,roundMoney(Number(s.reserved_remaining||0)));
-      if(refund>0) {
-        await ensureClientWallet(db,s.client_id);
-        await db.batch([
-          db.prepare("UPDATE nexus_missions SET reserved_remaining=MAX(0,reserved_remaining-?) WHERE id=?").bind(refund,s.mission_id),
-          db.prepare("UPDATE nexus_client_wallet SET available=available+?,reserved=MAX(0,reserved-?),updated_at=CURRENT_TIMESTAMP WHERE user_id=?").bind(refund,refund,s.client_id),
-          db.prepare(`
-            INSERT INTO nexus_client_ledger(user_id,delta_available,delta_reserved,type,source_ref,description)
-            VALUES(?,?,?,'rejection_release',?,?)
-          `).bind(s.client_id,refund,-refund,`reject:${submissionId}:${Date.now()}`,"Trabalho rejeitado em missão fechada: reserva liberada")
-        ]);
-      }
+    if(Number(result?.[3]?.meta?.changes||0)<1) {
+      return redirect("/?view=client&err="+enc("Esse envio já foi revisado ou não pertence à sua missão."),request);
     }
     return redirect("/?view=client&msg="+enc("Trabalho rejeitado."),request);
   }
 
-  if(Number(s.reserved_remaining||0)+0.001<cost) return redirect("/?view=client&err="+enc("A reserva dessa missão é insuficiente. Verifique o saldo."),request);
+  const workerRef=`submission:${submissionId}`;
+  const feeRef=`fee:${submissionId}`;
+  const clientRef=`approved:${submissionId}`;
 
-  await ensureClientWallet(db,s.client_id);
-  await db.batch([
-    db.prepare("UPDATE nexus_submissions SET status='approved',reviewed_at=CURRENT_TIMESTAMP WHERE id=? AND status='submitted'").bind(submissionId),
-    db.prepare("UPDATE nexus_missions SET reserved_remaining=MAX(0,reserved_remaining-?) WHERE id=?").bind(cost,s.mission_id),
-    db.prepare("UPDATE nexus_client_wallet SET reserved=MAX(0,reserved-?),updated_at=CURRENT_TIMESTAMP WHERE user_id=?").bind(cost,s.client_id),
+  const result=await db.batch([
     db.prepare(`
       INSERT OR IGNORE INTO nexus_wallet_ledger(user_id,amount,type,source_ref,description)
-      VALUES(?,?,'mission_reward',?,?)
-    `).bind(s.worker_id,Number(s.reward),`submission:${submissionId}`,`Missão aprovada: ${clean(s.title,100)}`),
+      SELECT s.worker_id,m.reward,'mission_reward',?,('Missão aprovada: '||substr(m.title,1,100))
+      FROM nexus_submissions s JOIN nexus_missions m ON m.id=s.mission_id
+      WHERE s.id=? AND s.status='submitted' AND m.client_id=?
+        AND m.reserved_remaining>=ROUND(m.reward*(1+m.fee_rate),2)
+        AND COALESCE((SELECT reserved FROM nexus_client_wallet WHERE user_id=m.client_id),0)>=ROUND(m.reward*(1+m.fee_rate),2)
+    `).bind(workerRef,submissionId,user.id),
     db.prepare(`
       INSERT OR IGNORE INTO nexus_platform_ledger(amount,mission_id,submission_id,source_ref,description)
-      VALUES(?,?,?,?,?)
-    `).bind(fee,s.mission_id,submissionId,`fee:${submissionId}`,`Receita Nexus: ${clean(s.title,100)}`),
+      SELECT ROUND(m.reward*m.fee_rate,2),m.id,s.id,?,('Receita Nexus: '||substr(m.title,1,100))
+      FROM nexus_submissions s JOIN nexus_missions m ON m.id=s.mission_id
+      WHERE s.id=? AND s.status='submitted' AND m.client_id=?
+        AND m.reserved_remaining>=ROUND(m.reward*(1+m.fee_rate),2)
+        AND COALESCE((SELECT reserved FROM nexus_client_wallet WHERE user_id=m.client_id),0)>=ROUND(m.reward*(1+m.fee_rate),2)
+    `).bind(feeRef,submissionId,user.id),
     db.prepare(`
-      INSERT INTO nexus_client_ledger(user_id,delta_available,delta_reserved,type,source_ref,description)
-      VALUES(?,0,?,'mission_approved',?,?)
-    `).bind(s.client_id,-cost,`approved:${submissionId}:${Date.now()}`,`Trabalho aprovado: ${clean(s.title,100)}`)
+      INSERT OR IGNORE INTO nexus_client_ledger(user_id,delta_available,delta_reserved,type,source_ref,description)
+      SELECT m.client_id,0,-ROUND(m.reward*(1+m.fee_rate),2),'mission_approved',?,
+             ('Trabalho aprovado: '||substr(m.title,1,100))
+      FROM nexus_submissions s JOIN nexus_missions m ON m.id=s.mission_id
+      WHERE s.id=? AND s.status='submitted' AND m.client_id=?
+        AND m.reserved_remaining>=ROUND(m.reward*(1+m.fee_rate),2)
+        AND COALESCE((SELECT reserved FROM nexus_client_wallet WHERE user_id=m.client_id),0)>=ROUND(m.reward*(1+m.fee_rate),2)
+    `).bind(clientRef,submissionId,user.id),
+    db.prepare(`
+      UPDATE nexus_client_wallet
+      SET reserved=MAX(0,reserved-(
+        SELECT ROUND(m.reward*(1+m.fee_rate),2)
+        FROM nexus_submissions s JOIN nexus_missions m ON m.id=s.mission_id
+        WHERE s.id=? AND s.status='submitted' AND m.client_id=?
+      )),updated_at=CURRENT_TIMESTAMP
+      WHERE user_id=? AND EXISTS(SELECT 1 FROM nexus_client_ledger WHERE source_ref=?)
+        AND EXISTS(SELECT 1 FROM nexus_submissions WHERE id=? AND status='submitted')
+    `).bind(submissionId,user.id,user.id,clientRef,submissionId),
+    db.prepare(`
+      UPDATE nexus_missions
+      SET reserved_remaining=MAX(0,reserved_remaining-ROUND(reward*(1+fee_rate),2))
+      WHERE client_id=? AND id=(SELECT mission_id FROM nexus_submissions WHERE id=? AND status='submitted')
+        AND EXISTS(SELECT 1 FROM nexus_client_ledger WHERE source_ref=?)
+    `).bind(user.id,submissionId,clientRef),
+    db.prepare(`
+      UPDATE nexus_submissions
+      SET status='approved',reviewed_at=CURRENT_TIMESTAMP
+      WHERE id=? AND status='submitted'
+        AND EXISTS(SELECT 1 FROM nexus_missions WHERE id=nexus_submissions.mission_id AND client_id=?)
+        AND EXISTS(SELECT 1 FROM nexus_client_ledger WHERE source_ref=?)
+        AND EXISTS(SELECT 1 FROM nexus_wallet_ledger WHERE source_ref=?)
+    `).bind(submissionId,user.id,clientRef,workerRef)
   ]);
 
-  return redirect("/?view=client&msg="+enc(`Trabalho aprovado. ${brl(s.reward)} creditados ao trabalhador.`),request);
+  if(Number(result?.[5]?.meta?.changes||0)<1) {
+    return redirect("/?view=client&err="+enc("Esse envio já foi processado ou a reserva é insuficiente."),request);
+  }
+
+  const rewardRow=await db.prepare(`
+    SELECT m.reward FROM nexus_submissions s JOIN nexus_missions m ON m.id=s.mission_id WHERE s.id=? LIMIT 1
+  `).bind(submissionId).first();
+  return redirect("/?view=client&msg="+enc(`Trabalho aprovado. ${brl(rewardRow?.reward||0)} creditados ao trabalhador.`),request);
 }
 
 async function handleMissionStatus(request, db, user, missionId, status) {
@@ -906,23 +1494,160 @@ async function handleMissionStatus(request, db, user, missionId, status) {
   return redirect("/?view=client&"+(r.ok?"msg="+enc("Missão reaberta e saldo novamente reservado."):"err="+enc(r.message)),request);
 }
 
-async function handleAdminClaim(request, db, user) {
-  const c=await db.prepare("SELECT COUNT(*) c FROM nexus_users WHERE is_admin=1").first();
-  if(Number(c?.c||0)>0) return redirect("/?view=profile&err="+enc("O administrador inicial já foi configurado."),request);
+async function handleCreatePixDeposit(request, env, user) {
+  if(!canClient(user)) return redirect("/?view=profile&err="+enc("Seu perfil não pode adicionar saldo de contratante."),request);
+  if(!asaasConfigured(env)) return redirect("/?view=profile&err="+enc("O PIX via Asaas ainda não foi configurado pelo administrador."),request);
 
-  const first=await db.prepare("SELECT id FROM nexus_users ORDER BY id ASC LIMIT 1").first();
-  if(!first||Number(first.id)!==Number(user.id)) {
-    await auditSecurity(db,request,user.id,"admin_claim_denied","not_first_account");
-    return redirect("/?view=profile&err="+enc("Por segurança, apenas a primeira conta criada pode ativar o administrador inicial."),request);
+  const f=await request.formData();
+  const amount=roundMoney(Number(String(f.get("amount")||"0").replace(",",".")));
+  const cpfCnpj=digitsOnly(f.get("cpf_cnpj"));
+
+  if(!Number.isFinite(amount)||amount<10||amount>50000) {
+    return redirect("/?view=profile&err="+enc("Informe um valor entre R$ 10,00 e R$ 50.000,00."),request);
+  }
+  if(!validCpfCnpj(cpfCnpj)) {
+    return redirect("/?view=profile&err="+enc("Informe um CPF ou CNPJ válido para gerar a cobrança PIX."),request);
   }
 
-  await db.prepare("UPDATE nexus_users SET is_admin=1 WHERE id=?").bind(user.id).run();
-  await auditSecurity(db,request,user.id,"admin_claim_success","initial_admin");
-  return redirect("/?view=admin&msg="+enc("Painel administrativo ativado para sua conta."),request);
+  const rate=await enforceRateLimit(env.DB,request,"pix-deposit",String(user.id),6,15*60*1000);
+  if(!rate.ok) return redirect("/?view=profile&err="+enc("Muitas cobranças PIX em pouco tempo. Aguarde alguns minutos."),request);
+
+  try {
+    const id=await createPixDepositCharge(env,env.DB,user,amount,cpfCnpj);
+    await auditSecurity(env.DB,request,user.id,"pix_deposit_created",String(id));
+    return redirect(`/?view=profile&pix=${id}&msg=`+enc("Cobrança PIX criada. O saldo será liberado somente após confirmação do Asaas."),request);
+  } catch(e) {
+    await auditSecurity(env.DB,request,user.id,"pix_deposit_error",clean(String(e?.message||e),200));
+    return redirect("/?view=profile&err="+enc(`Não foi possível gerar o PIX: ${String(e?.message||e)}`),request);
+  }
 }
 
-async function handleAdminUserAction(request, db, user, targetId, action) {
+async function handleAsaasWebhook(request, env, ctx) {
+  if(!asaasWebhookConfigured(env)) return new Response("webhook not configured",{status:503});
+
+  const received=String(request.headers.get("asaas-access-token")||"");
+  const expected=String(env.ASAAS_WEBHOOK_TOKEN||"");
+  if(!safeEqual(received,expected)) return new Response("unauthorized",{status:401});
+
+  let payload={};
+  try{payload=await request.json()}catch{return new Response("invalid json",{status:400})}
+
+  const eventId=clean(payload?.id,180);
+  const eventType=clean(payload?.event,80);
+  const paymentId=clean(payload?.payment?.id,120);
+  if(!eventId) return new Response("missing event id",{status:400});
+
+  const r=await env.DB.prepare(`
+    INSERT OR IGNORE INTO nexus_asaas_events(event_id,event_type,payment_id,payload,status)
+    VALUES(?,?,?,?, 'pending')
+  `).bind(eventId,eventType,paymentId,JSON.stringify(payload).slice(0,20000)).run();
+
+  if(Number(r.meta?.changes||0)>0) {
+    if(ctx?.waitUntil) ctx.waitUntil(processAsaasEvent(env,eventId));
+    else await processAsaasEvent(env,eventId);
+  }
+
+  return new Response("ok",{status:200});
+}
+
+async function handleWithdrawalRequest(request, db, user) {
+  if(!canWorker(user)) return redirect("/?view=profile&err="+enc("Seu perfil não pode solicitar saque."),request);
+
+  const f=await request.formData();
+  const amount=roundMoney(Number(String(f.get("amount")||"0").replace(",",".")));
+  const keyType=String(f.get("pix_key_type")||"").toUpperCase();
+  const pixKey=normalizePixKey(keyType,f.get("pix_key"));
+
+  if(!["CPF","CNPJ","EMAIL","PHONE","EVP"].includes(keyType)) {
+    return redirect("/?view=profile&err="+enc("Selecione um tipo de chave PIX válido."),request);
+  }
+  if(!Number.isFinite(amount)||amount<MIN_WITHDRAWAL||amount>50000) {
+    return redirect("/?view=profile&err="+enc(`O saque mínimo é ${brl(MIN_WITHDRAWAL)}.`),request);
+  }
+  if(!validPixKey(keyType,pixKey)) return redirect("/?view=profile&err="+enc("Informe uma chave PIX válida para o tipo selecionado."),request);
+
+  const requestRef=`withdraw:${user.id}:${Date.now()}:${randomHex(4)}`;
+  const holdRef=`withdrawal_hold:${requestRef}`;
+
+  const result=await db.batch([
+    db.prepare(`
+      INSERT INTO nexus_withdrawals(user_id,amount,pix_key_type,pix_key,status,request_ref)
+      SELECT ?,?,?,?,'pending',?
+      WHERE (SELECT COALESCE(SUM(amount),0) FROM nexus_wallet_ledger WHERE user_id=?)>=?
+        AND NOT EXISTS(
+          SELECT 1 FROM nexus_withdrawals
+          WHERE user_id=? AND status IN ('pending','approved') AND created_at>=datetime('now','-5 minutes')
+        )
+    `).bind(user.id,amount,keyType,pixKey,requestRef,user.id,amount,user.id),
+    db.prepare(`
+      INSERT INTO nexus_wallet_ledger(user_id,amount,type,source_ref,description)
+      SELECT user_id,-amount,'withdrawal_hold',?,'Saldo reservado para solicitação de saque'
+      FROM nexus_withdrawals WHERE request_ref=?
+    `).bind(holdRef,requestRef)
+  ]);
+
+  if(Number(result?.[0]?.meta?.changes||0)<1) {
+    return redirect("/?view=profile&err="+enc("Saldo insuficiente ou já existe uma solicitação recente em análise."),request);
+  }
+  return redirect("/?view=profile&msg="+enc("Saque solicitado. O valor ficou reservado até a conferência do administrador."),request);
+}
+
+async function handleAdminWithdrawal(request, db, user, withdrawalId, action) {
   if(!user.is_admin) return redirect("/?err="+enc("Acesso administrativo necessário."),request);
+
+  const w=await db.prepare("SELECT * FROM nexus_withdrawals WHERE id=? LIMIT 1").bind(withdrawalId).first();
+  if(!w) return redirect("/?view=admin&err="+enc("Saque não encontrado."),request);
+
+  if(action==="approve") {
+    const r=await db.prepare(`
+      UPDATE nexus_withdrawals
+      SET status='approved',reviewed_by=?,reviewed_at=CURRENT_TIMESTAMP
+      WHERE id=? AND status='pending'
+    `).bind(user.id,withdrawalId).run();
+    return redirect("/?view=admin&"+(Number(r.meta?.changes||0)>0?"msg="+enc("Saque aprovado para pagamento manual."):"err="+enc("Esse saque já foi processado.")),request);
+  }
+
+  if(action==="reject") {
+    const refundRef=`withdrawal_refund:${withdrawalId}`;
+    const result=await db.batch([
+      db.prepare(`
+        INSERT OR IGNORE INTO nexus_wallet_ledger(user_id,amount,type,source_ref,description)
+        SELECT user_id,amount,'withdrawal_refund',?,'Saque rejeitado: saldo devolvido'
+        FROM nexus_withdrawals WHERE id=? AND status IN ('pending','approved')
+      `).bind(refundRef,withdrawalId),
+      db.prepare(`
+        UPDATE nexus_withdrawals
+        SET status='rejected',reviewed_by=?,reviewed_at=CURRENT_TIMESTAMP
+        WHERE id=? AND status IN ('pending','approved')
+          AND EXISTS(SELECT 1 FROM nexus_wallet_ledger WHERE source_ref=?)
+      `).bind(user.id,withdrawalId,refundRef)
+    ]);
+    return redirect("/?view=admin&"+(Number(result?.[1]?.meta?.changes||0)>0?"msg="+enc("Saque rejeitado e saldo devolvido ao trabalhador."):"err="+enc("Esse saque já foi processado.")),request);
+  }
+
+  if(action==="paid") {
+    const r=await db.prepare(`
+      UPDATE nexus_withdrawals
+      SET status='paid',reviewed_by=COALESCE(reviewed_by,?),reviewed_at=COALESCE(reviewed_at,CURRENT_TIMESTAMP),paid_at=CURRENT_TIMESTAMP
+      WHERE id=? AND status='approved'
+    `).bind(user.id,withdrawalId).run();
+    return redirect("/?view=admin&"+(Number(r.meta?.changes||0)>0?"msg="+enc("Saque marcado como pago."):"err="+enc("O saque precisa estar aprovado antes de ser marcado como pago.")),request);
+  }
+
+  return redirect("/?view=admin&err="+enc("Ação de saque inválida."),request);
+}
+
+async function handleAdminAsaasReconcile(request, env, user) {
+  if(!user.is_admin) return redirect("/?err="+enc("Acesso administrativo necessário."),request);
+  if(!asaasConfigured(env)) return redirect("/?view=admin&err="+enc("Asaas ainda não está configurado."),request);
+  const result=await reconcilePendingAsaas(env,20);
+  return redirect("/?view=admin&msg="+enc(`Conciliação concluída: ${result.checked} cobrança(s) verificadas e ${result.credited} crédito(s) liberado(s).`),request);
+}
+
+
+async function handleAdminUserAction(request, env, user, targetId, action) {
+  if(!user.is_admin) return redirect("/?err="+enc("Acesso administrativo necessário."),request);
+  const db=env.DB;
   const target=await db.prepare("SELECT id,name,role,is_admin FROM nexus_users WHERE id=? LIMIT 1").bind(targetId).first();
   if(!target) return redirect("/?view=admin&err="+enc("Usuário não encontrado."),request);
 
@@ -934,17 +1659,21 @@ async function handleAdminUserAction(request, db, user, targetId, action) {
   }
 
   if(action==="credit") {
+    if(String(env.ALLOW_ADMIN_CREDIT||"").toLowerCase()!=="true") {
+      return redirect("/?view=admin&err="+enc("Ajuste manual de saldo está desativado. Use PIX/Asaas para créditos reais."),request);
+    }
     if(!["client","both"].includes(String(target.role))) return redirect("/?view=admin&err="+enc("Saldo de contratante só pode ser adicionado a perfis contratante ou os dois."),request);
     const f=await request.formData();
     const amount=roundMoney(Number(String(f.get("amount")||"0").replace(",",".")));
     if(!Number.isFinite(amount)||amount<MIN_REWARD||amount>100000) return redirect("/?view=admin&err="+enc("Informe um crédito entre R$ 2,50 e R$ 100.000."),request);
     await ensureClientWallet(db,targetId);
+    const ref=`admin_credit:${targetId}:${Date.now()}:${randomHex(4)}`;
     await db.batch([
       db.prepare("UPDATE nexus_client_wallet SET available=available+?,updated_at=CURRENT_TIMESTAMP WHERE user_id=?").bind(amount,targetId),
       db.prepare(`
         INSERT INTO nexus_client_ledger(user_id,delta_available,delta_reserved,type,source_ref,description)
         VALUES(?,?,0,'admin_credit',?,?)
-      `).bind(targetId,amount,`credit:${targetId}:${Date.now()}:${randomHex(3)}`,"Crédito interno adicionado pelo administrador")
+      `).bind(targetId,amount,ref,"Ajuste manual de saldo pelo administrador")
     ]);
     await auditSecurity(db,request,user.id,"admin_credit",`${targetId}:${amount}`);
     return redirect("/?view=admin&msg="+enc(`${brl(amount)} adicionados ao saldo interno de ${target.name}.`),request);
@@ -962,7 +1691,8 @@ async function handleAdminMissionClose(request, db, user, missionId) {
   return redirect("/?view=admin&msg="+enc("Missão encerrada pelo administrador."),request);
 }
 
-async function renderDashboard(request, db, user, url) {
+async function renderDashboard(request, env, user, url) {
+  const db=env.DB;
   if(!user||!user.id) return redirect("/login?err="+enc("Sua sessão não foi carregada. Entre novamente."),request);
 
   let view=["home","mine","create","client","profile","admin"].includes(url.searchParams.get("view"))?url.searchParams.get("view"):"home";
@@ -973,12 +1703,19 @@ async function renderDashboard(request, db, user, url) {
   const msg=url.searchParams.get("msg")||"";
   const err=url.searchParams.get("err")||"";
   const reputation=await getReputation(db,user);
+  const financeConfig={
+    asaasReady:asaasConfigured(env),
+    webhookReady:asaasWebhookConfigured(env),
+    asaasEnv:String(env.ASAAS_ENV||"sandbox").toLowerCase(),
+    allowAdminCredit:String(env.ALLOW_ADMIN_CREDIT||"").toLowerCase()==="true",
+    adminEmailConfigured:!!String(env.ADMIN_EMAIL||"").trim()
+  };
 
   let content="";
   if(view==="home") {
     if(user.role==="client") {
       const [data,wallet]=await Promise.all([getClientData(db,user.id),getClientWallet(db,user.id)]);
-      content=renderClientHome(user,data.missions,data.subs,wallet);
+      content=renderClientHome(user,data.missions,data.subs,wallet,financeConfig);
     } else {
       const [feed,wallet]=await Promise.all([getFeedData(db,user,url),getWorkerWallet(db,user.id)]);
       content=renderHome(user,feed,wallet);
@@ -987,17 +1724,22 @@ async function renderDashboard(request, db, user, url) {
     const [mine,wallet]=await Promise.all([getMySubmissions(db,user.id,url),getWorkerWallet(db,user.id)]);
     content=renderMine(user,mine,wallet);
   } else if(view==="create") {
-    content=renderCreate(user,await getClientWallet(db,user.id));
+    content=renderCreate(user,await getClientWallet(db,user.id),financeConfig);
   } else if(view==="client") {
     const [data,wallet]=await Promise.all([getClientData(db,user.id),getClientWallet(db,user.id)]);
     content=renderClient(user,data.missions,data.subs,wallet);
   } else if(view==="profile") {
-    const workerWallet=canWorker(user)?await getWorkerWallet(db,user.id):null;
-    const clientWallet=canClient(user)?await getClientWallet(db,user.id):null;
-    const admins=await db.prepare("SELECT COUNT(*) c FROM nexus_users WHERE is_admin=1").first();
-    content=renderProfile(user,workerWallet,clientWallet,reputation,Number(admins?.c||0));
+    const pixId=Math.max(0,Number(url.searchParams.get("pix")||0));
+    const [workerWallet,clientWallet,withdrawals,deposits,pixDeposit]=await Promise.all([
+      canWorker(user)?getWorkerWallet(db,user.id):Promise.resolve(null),
+      canClient(user)?getClientWallet(db,user.id):Promise.resolve(null),
+      canWorker(user)?getUserWithdrawals(db,user.id):Promise.resolve([]),
+      canClient(user)?getUserPixDeposits(db,user.id):Promise.resolve([]),
+      canClient(user)&&pixId?getPixDepositById(db,user.id,pixId):Promise.resolve(null)
+    ]);
+    content=renderProfile(user,workerWallet,clientWallet,reputation,withdrawals,deposits,pixDeposit,financeConfig);
   } else if(view==="admin") {
-    content=renderAdmin(user,await getAdminData(db));
+    content=renderAdmin(user,await getAdminData(db),financeConfig);
   }
 
   const body=`
@@ -1137,7 +1879,7 @@ function renderHome(user, feed, wallet) {
   `;
 }
 
-function renderClientHome(user, missions, subs, wallet) {
+function renderClientHome(user, missions, subs, wallet, financeConfig={}) {
   const openCount=missions.filter(m=>m.status==="open").length;
   const waiting=subs.filter(s=>s.status==="submitted").length;
   const approved=subs.filter(s=>s.status==="approved").length;
@@ -1153,8 +1895,10 @@ function renderClientHome(user, missions, subs, wallet) {
 
     <div class="row action-row">
       <a class="btn primary wide linkbtn nomargin" href="/?view=create">＋ Publicar missão</a>
-      <a class="btn secondary wide linkbtn nomargin" href="/?view=client">Ver trabalhos</a>
+      <a class="btn secondary wide linkbtn nomargin" href="/?view=profile">${financeConfig.asaasReady?"⚡ Adicionar saldo via PIX":"Carteira"}</a>
     </div>
+
+    ${financeConfig.asaasReady?`<div class="notice finance-note">Saldo real: gere uma cobrança PIX no Perfil. O crédito só entra após confirmação do Asaas.</div>`:""}
 
     <div class="section-title"><h2>Suas missões recentes</h2><span>${missions.length}</span></div>
     <div class="grid">
@@ -1228,11 +1972,11 @@ function renderMine(user, mine, wallet) {
     </div>`;
 }
 
-function renderCreate(user, wallet) {
+function renderCreate(user, wallet, financeConfig={}) {
   if(!canClient(user)) return denied("Seu perfil foi criado apenas para realizar missões.");
   const defaultDeadline=datePlusDays(7);
   return `
-    <section class="hero"><h1>Publicar missão</h1><p class="muted">Defina a recompensa líquida do trabalhador. Você verá apenas o custo final da missão.</p></section>
+    <section class="hero"><h1>Publicar missão</h1><p class="muted">Defina a recompensa líquida do trabalhador. Você verá o custo final já com a taxa Nexus.</p></section>
 
     <div class="metric-grid wallet-mini">
       ${metric("Saldo disponível",brl(wallet.available))}
@@ -1240,9 +1984,10 @@ function renderCreate(user, wallet) {
       ${metric("Gasto aprovado",brl(wallet.spent))}
     </div>
 
-    ${wallet.available<MIN_REWARD?`<div class="notice">Seu saldo está zerado. Na v0.4 o administrador adiciona saldo interno pelo painel Admin antes de você publicar.</div>`:""}
+    ${wallet.available<MIN_REWARD?`<div class="notice">Seu saldo disponível está baixo. ${financeConfig.asaasReady?`Abra <a href="/?view=profile">Perfil e carteira</a> para adicionar saldo via PIX.`:"A integração PIX ainda não está configurada."}</div>`:""}
 
     <form class="panel image-form" method="post" action="/missions/create">
+      <input type="hidden" name="form_token" value="${randomHex(16)}">
       <label>Título</label><input class="field" name="title" required minlength="5" maxlength="100" placeholder="Ex.: Teste minha página e diga o que ficou confuso">
       <label>Categoria</label><select class="field" name="category"><option>Pesquisa</option><option>Teste</option><option>Opinião</option><option>Levantamento</option></select>
       <label>Descrição curta</label><textarea class="field" name="description" required minlength="10" maxlength="500" placeholder="Explique o objetivo da missão."></textarea>
@@ -1259,7 +2004,7 @@ function renderCreate(user, wallet) {
       <input type="hidden" name="image_data" class="image-data"><img class="preview" alt="">
 
       <div class="final-cost budget">Custo final da missão: ${brl(finalMissionCost(2.50,10))}</div>
-      <div class="notice">O trabalhador verá somente a recompensa que recebe. O custo final precisa estar disponível e será reservado quando a missão for publicada.</div>
+      <div class="notice">O trabalhador vê somente a recompensa líquida. Ao publicar, o custo final é reservado imediatamente para impedir missões sem cobertura.</div>
       <button class="btn primary wide">Publicar e reservar saldo</button>
     </form>`;
 }
@@ -1295,10 +2040,22 @@ function renderClient(user, missions, subs, wallet) {
     </div>`;
 }
 
-function renderProfile(user, workerWallet, clientWallet, reputation, adminCount) {
+function withdrawalStatusText(status) {
+  return ({pending:"Em análise",approved:"Aprovado para pagamento",paid:"Pago",rejected:"Rejeitado"})[status]||status;
+}
+function depositStatusText(status) {
+  return ({creating:"Preparando cobrança",pending:"Aguardando PIX",paid:"Creditado",refunded:"Estornado",review_required:"Revisão necessária",error:"Falha ao gerar",cancelled:"Cancelado",expired:"Expirado"})[status]||status;
+}
+function maskPixKey(value) {
+  const s=String(value||"");
+  if(s.length<=6) return s;
+  return s.slice(0,3)+"••••"+s.slice(-3);
+}
+
+function renderProfile(user, workerWallet, clientWallet, reputation, withdrawals=[], deposits=[], pixDeposit=null, financeConfig={}) {
   const initials=String(user.name||"U").split(/\s+/).slice(0,2).map(x=>x[0]||"").join("").toUpperCase();
   return `
-    <section class="hero"><h1>Perfil e carteira</h1><p class="muted">Acompanhe reputação, saldo e histórico.</p></section>
+    <section class="hero"><h1>Perfil e carteira</h1><p class="muted">Acompanhe reputação, saldo, PIX e histórico financeiro.</p></section>
 
     <div class="profile-head panel">
       <div class="userline"><div class="avatar initials">${esc(initials)}</div><div>
@@ -1309,13 +2066,93 @@ function renderProfile(user, workerWallet, clientWallet, reputation, adminCount)
 
     ${workerWallet?`
       <div class="section-title"><h2>Carteira do trabalhador</h2></div>
-      <div class="metric-grid">${metric("Disponível",brl(workerWallet.available))}${metric("Em análise",brl(workerWallet.pending))}${metric("Total ganho",brl(workerWallet.total))}${metric("Aprovação",`${reputation.worker?.rate||100}%`)}</div>
+      <div class="metric-grid">
+        ${metric("Disponível",brl(workerWallet.available))}
+        ${metric("Em análise",brl(workerWallet.pending))}
+        ${metric("Reservado p/ saque",brl(workerWallet.withdrawal_pending))}
+        ${metric("Total ganho",brl(workerWallet.total))}
+      </div>
+
+      <div class="finance-grid">
+        <form class="panel finance-panel" method="post" action="/wallet/withdraw/request">
+          <div class="finance-panel-head"><div><span class="tag">SAQUE PIX</span><h3>Solicitar saque</h3></div></div>
+          <p class="muted small">O valor é reservado imediatamente e passa por conferência do administrador antes do pagamento.</p>
+          <label>Valor do saque</label>
+          <input class="field" name="amount" type="number" min="${MIN_WITHDRAWAL}" step="0.01" placeholder="${brl(MIN_WITHDRAWAL)}" required>
+          <div class="form-grid">
+            <div><label>Tipo de chave</label><select class="field" name="pix_key_type" required>
+              <option value="CPF">CPF</option><option value="CNPJ">CNPJ</option><option value="EMAIL">E-mail</option><option value="PHONE">Telefone</option><option value="EVP">Chave aleatória</option>
+            </select></div>
+            <div><label>Chave PIX</label><input class="field" name="pix_key" maxlength="180" required></div>
+          </div>
+          <button class="btn primary wide">Solicitar saque</button>
+        </form>
+
+        <div class="panel finance-panel">
+          <div class="finance-panel-head"><div><span class="tag">HISTÓRICO</span><h3>Saques</h3></div></div>
+          ${withdrawals.length?withdrawals.map(w=>`
+            <div class="finance-row">
+              <div><b>${brl(w.amount)}</b><small>${esc(w.pix_key_type)} · ${esc(maskPixKey(w.pix_key))}<br>${formatDateTime(w.created_at)}</small></div>
+              <span class="finance-status ${esc(w.status)}">${esc(withdrawalStatusText(w.status))}</span>
+            </div>`).join(""):`<div class="muted small">Nenhum saque solicitado.</div>`}
+        </div>
+      </div>
       ${renderWorkerHistory(workerWallet.entries)}
     `:""}
 
     ${clientWallet?`
       <div class="section-title spaced"><h2>Carteira do contratante</h2></div>
-      <div class="metric-grid">${metric("Disponível",brl(clientWallet.available))}${metric("Reservado",brl(clientWallet.reserved))}${metric("Gasto aprovado",brl(clientWallet.spent))}${metric("Reputação",`${reputation.client?.rate||100}%`)}</div>
+      <div class="metric-grid">
+        ${metric("Disponível",brl(clientWallet.available))}
+        ${metric("Reservado",brl(clientWallet.reserved))}
+        ${metric("Gasto aprovado",brl(clientWallet.spent))}
+        ${metric("Reputação",`${reputation.client?.rate||100}%`)}
+      </div>
+
+      <div class="finance-grid">
+        <form class="panel finance-panel" method="post" action="/wallet/pix/create">
+          <div class="finance-panel-head"><div><span class="tag">PIX</span><h3>Adicionar saldo</h3></div></div>
+          ${financeConfig.asaasReady?`
+            <p class="muted small">Gere um QR Code dinâmico. O Nexus só credita o saldo após o Asaas confirmar o pagamento.</p>
+            <label>Valor</label><input class="field" name="amount" type="number" min="10" max="50000" step="0.01" value="50.00" required>
+            <label>CPF ou CNPJ do pagador</label><input class="field" name="cpf_cnpj" inputmode="numeric" maxlength="18" placeholder="Somente números ou formatado" required>
+            <button class="btn primary wide">Gerar cobrança PIX</button>
+            <div class="small muted topgap">Ambiente: ${financeConfig.asaasEnv==="production"?"Produção":"Sandbox/Teste"}</div>
+          `:`<div class="notice">Integração Asaas ainda não configurada. O administrador precisa cadastrar os Secrets antes de gerar cobranças reais.</div>`}
+        </form>
+
+        <div class="panel finance-panel">
+          <div class="finance-panel-head"><div><span class="tag">DEPÓSITOS</span><h3>Histórico PIX</h3></div></div>
+          ${deposits.length?deposits.map(d=>`
+            <div class="finance-row">
+              <div><b>${brl(d.amount)}</b><small>${formatDateTime(d.created_at)}</small></div>
+              <span class="finance-status ${esc(d.status)}">${esc(depositStatusText(d.status))}</span>
+            </div>`).join(""):`<div class="muted small">Nenhuma cobrança PIX criada.</div>`}
+        </div>
+      </div>
+
+      ${pixDeposit?`
+        <div class="panel pix-charge-panel">
+          <div class="finance-panel-head"><div><span class="tag">COBRANÇA PIX</span><h3>${brl(pixDeposit.amount)}</h3></div><span class="finance-status ${esc(pixDeposit.status)}">${esc(depositStatusText(pixDeposit.status))}</span></div>
+          ${pixDeposit.status==="pending"?`
+            <div class="pix-grid">
+              <div class="pix-qr">${pixDeposit.qr_image?`<img src="${pixDeposit.qr_image}" alt="QR Code PIX">`:"<div class='empty'>QR Code ainda não disponível. Gere novamente a mesma cobrança para tentar recuperar o QR.</div>"}</div>
+              <div>
+                <p class="muted">Pague pelo aplicativo do seu banco. O saldo não é liberado apenas porque a tela foi aberta: o servidor espera a confirmação do Asaas.</p>
+                <label>PIX copia e cola</label>
+                <textarea class="field pix-payload" readonly>${esc(pixDeposit.pix_payload||"")}</textarea>
+                <button type="button" class="btn secondary copy-pix" data-copy="${esc(pixDeposit.pix_payload||"")}">Copiar código PIX</button>
+                ${pixDeposit.expiration_date?`<div class="small muted topgap">Expiração informada pelo Asaas: ${esc(pixDeposit.expiration_date)}</div>`:""}
+              </div>
+            </div>
+          `:pixDeposit.status==="creating"?`<div class="notice">A cobrança está sendo preparada. Atualize a página em alguns segundos ou gere novamente o mesmo valor para recuperar o QR sem duplicar a cobrança.</div>`
+            :pixDeposit.status==="paid"?`<div class="flash ok">Pagamento confirmado e saldo creditado.</div>`
+            :pixDeposit.status==="refunded"?`<div class="flash err">Esse PIX foi estornado no Asaas e o crédito correspondente foi revertido da carteira.</div>`
+            :pixDeposit.status==="review_required"?`<div class="notice">Essa cobrança exige revisão administrativa por estorno parcial ou contestação.</div>`
+            :`<div class="flash err">A cobrança não pôde ser concluída. Gere uma nova cobrança PIX.</div>`}
+        </div>
+      `:""}
+
       ${renderClientHistory(clientWallet.entries)}
     `:""}
 
@@ -1325,11 +2162,8 @@ function renderProfile(user, workerWallet, clientWallet, reputation, adminCount)
       ${reputation.client?`<p><b>Contratante:</b> ${reputation.client.missions} missões · ${reputation.client.approved} trabalhos aprovados · ${reputation.client.rate}% de aprovação</p>`:""}
     </div>
 
-    ${adminCount===0&&!user.is_admin?`
-      <div class="notice">Primeira configuração: ainda não existe administrador no Bern Nexus.</div>
-      <form method="post" action="/admin/claim"><button class="btn primary">Ativar esta conta como administrador</button></form>
-    `:""}
     ${user.is_admin?`<a class="btn secondary linkbtn admin-link" href="/?view=admin">Abrir painel Admin</a>`:""}
+    ${!financeConfig.adminEmailConfigured?`<div class="notice security-notice">Administrador não configurado por variável privada. Defina <b>ADMIN_EMAIL</b> no Worker antes de abrir a plataforma ao público.</div>`:""}
 
     <form method="post" action="/logout" class="logoutform"><button class="btn secondary">Sair</button></form>`;
 }
@@ -1385,7 +2219,7 @@ function clientMissionCard(m) {
       <div class="meta"><span class="tag">${esc(m.category).toUpperCase()}</span><span class="reward">${brl(m.reward)}</span></div>
       <h3>${esc(m.title)}</h3>
       <div class="stats">
-        <span>${Number(m.submissions_count||0)} participações</span>
+        <span>${Number(m.submissions_count||0)} ${Number(m.submissions_count||0)===1?"participação":"participações"}</span>
         <span>${Number(m.pending_count||0)} em análise</span>
         <span>${Number(m.approved_count||0)} aprovadas</span>
         <span>📅 ${esc(deadlineLabel(m.deadline))}</span>
@@ -1406,16 +2240,62 @@ function renderClientHistory(entries) {
   return `<div class="history panel"><h3>Histórico</h3>${entries.length?entries.map(e=>`<div class="history-row"><div><b>${esc(e.description||e.type)}</b><small>${formatDateTime(e.created_at)}</small></div><div class="ledger-values"><span>Disponível ${signedBrl(e.delta_available)}</span><span>Reservado ${signedBrl(e.delta_reserved)}</span></div></div>`).join(""):`<div class="muted">Nenhuma movimentação ainda.</div>`}</div>`;
 }
 
-function renderAdmin(user,data) {
+function renderAdmin(user,data,financeConfig={}) {
   return `
-    <section class="hero"><h1>Admin Bern Nexus</h1><p class="muted">Controle usuários, saldo interno, missões e receita da plataforma.</p></section>
-    <div class="metric-grid">
+    <section class="hero"><h1>Admin Bern Nexus</h1><p class="muted">Controle usuários, missões, PIX, saques e integridade financeira.</p></section>
+
+    <div class="metric-grid admin-metrics">
       ${metric("Usuários",Number(data.stats.users||0))}
       ${metric("Missões abertas",Number(data.stats.open_missions||0))}
-      ${metric("Aguardando revisão",Number(data.stats.pending_reviews||0))}
+      ${metric("Revisões pendentes",Number(data.stats.pending_reviews||0))}
+      ${metric("Saques pendentes",Number(data.stats.pending_withdrawals||0))}
+      ${metric("PIX pendentes",Number(data.stats.pending_pix||0))}
+      ${metric("PIX recebidos",brl(data.stats.pix_received||0))}
       ${metric("Saldo reservado",brl(data.stats.total_reserved||0))}
-      ${metric("Receita Nexus",brl(data.platform))}
+      ${metric("Resultado plataforma",brl(data.platform))}
     </div>
+
+    <div class="panel admin-config-panel">
+      <div>
+        <b>Integração financeira</b>
+        <div class="small muted">
+          Asaas: ${financeConfig.asaasReady?"configurado":"não configurado"} ·
+          Webhook: ${financeConfig.webhookReady?"token configurado":"sem token"} ·
+          Ambiente: ${financeConfig.asaasEnv==="production"?"Produção":"Sandbox/Teste"}
+        </div>
+      </div>
+      ${financeConfig.asaasReady?`<form method="post" action="/admin/asaas/reconcile"><button class="btn secondary">Conciliar PIX pendentes</button></form>`:""}
+    </div>
+
+    <div class="section-title spaced"><h2>Saques solicitados</h2><span>${data.withdrawals.length}</span></div>
+    <div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Trabalhador</th><th>Valor</th><th>Chave PIX</th><th>Status</th><th>Ações</th></tr></thead><tbody>
+      ${data.withdrawals.length?data.withdrawals.map(w=>`<tr>
+        <td><b>${esc(w.worker_name)}</b><small>${esc(w.worker_email)}</small></td>
+        <td>${brl(w.amount)}</td>
+        <td>${esc(w.pix_key_type)}<small>${esc(w.pix_key)}</small></td>
+        <td>${esc(withdrawalStatusText(w.status))}<small>${formatDateTime(w.created_at)}</small></td>
+        <td>
+          ${w.status==="pending"?`
+            <form class="inline-form" method="post" action="/admin/withdrawals/${w.id}/approve"><button class="mini-btn">Aprovar</button></form>
+            <form class="inline-form" method="post" action="/admin/withdrawals/${w.id}/reject"><button class="mini-btn danger-mini">Rejeitar</button></form>
+          `:""}
+          ${w.status==="approved"?`
+            <form class="inline-form" method="post" action="/admin/withdrawals/${w.id}/paid"><button class="mini-btn">Marcar pago</button></form>
+            <form class="inline-form" method="post" action="/admin/withdrawals/${w.id}/reject"><button class="mini-btn danger-mini">Cancelar/estornar</button></form>
+          `:""}
+        </td>
+      </tr>`).join(""):`<tr><td colspan="5">Nenhum saque solicitado.</td></tr>`}
+    </tbody></table></div>
+
+    <div class="section-title spaced"><h2>Depósitos PIX</h2><span>${data.deposits.length}</span></div>
+    <div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Contratante</th><th>Valor</th><th>Status</th><th>Asaas</th><th>Data</th></tr></thead><tbody>
+      ${data.deposits.length?data.deposits.map(d=>`<tr>
+        <td>${esc(d.client_name)}</td><td>${brl(d.amount)}</td>
+        <td>${esc(depositStatusText(d.status))}</td>
+        <td><small>${esc(d.asaas_payment_id||"—")}</small></td>
+        <td>${formatDateTime(d.credited_at||d.created_at)}</td>
+      </tr>`).join(""):`<tr><td colspan="5">Nenhuma cobrança PIX registrada.</td></tr>`}
+    </tbody></table></div>
 
     <div class="section-title spaced"><h2>Usuários</h2><span>${data.users.length}</span></div>
     <div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Usuário</th><th>Perfil</th><th>Saldo</th><th>Status</th><th>Ações</th></tr></thead><tbody>
@@ -1425,7 +2305,7 @@ function renderAdmin(user,data) {
         <td>${["client","both"].includes(u.role)?`${brl(u.client_available)} disp.<br><small>${brl(u.client_reserved)} reservado</small>`:"—"}</td>
         <td>${Number(u.is_blocked||0)===1?"Bloqueado":"Ativo"}</td>
         <td>
-          ${["client","both"].includes(u.role)?`<form class="inline-form" method="post" action="/admin/users/${u.id}/credit"><input class="mini-input" name="amount" type="number" min="2.50" step="0.50" placeholder="R$"><button class="mini-btn">+ saldo</button></form>`:""}
+          ${financeConfig.allowAdminCredit&&["client","both"].includes(u.role)?`<form class="inline-form" method="post" action="/admin/users/${u.id}/credit"><input class="mini-input" name="amount" type="number" min="2.50" step="0.50" placeholder="R$"><button class="mini-btn">Ajuste manual</button></form>`:""}
           ${Number(u.is_admin||0)!==1?`<form class="inline-form" method="post" action="/admin/users/${u.id}/${Number(u.is_blocked||0)===1?"unblock":"block"}"><button class="mini-btn ${Number(u.is_blocked||0)===1?"":"danger-mini"}">${Number(u.is_blocked||0)===1?"Desbloquear":"Bloquear"}</button></form>`:""}
         </td>
       </tr>`).join("")}
@@ -1774,15 +2654,26 @@ function renderAuth(mode, url) {
   `);
 }
 
+function sessionTokenFromRequest(request) {
+  return getCookie(request,"__Host-bn_session") || getCookie(request,"bn_session");
+}
+
 async function currentUser(request, db) {
-  const token=getCookie(request,"bn_session");
+  const token=sessionTokenFromRequest(request);
   if(!token) return null;
+  const tokenHash=await sha256Hex("session:"+token);
   const row=await db.prepare(`
-    SELECT u.id,u.name,u.email,u.role,u.created_at,u.is_admin,u.is_blocked
+    SELECT u.id,u.name,u.email,u.role,u.created_at,u.is_admin,u.is_blocked,s.token session_token
     FROM nexus_sessions s JOIN nexus_users u ON u.id=s.user_id
-    WHERE s.token=? AND s.expires_at>CURRENT_TIMESTAMP LIMIT 1
-  `).bind(token).first();
+    WHERE (s.token=? OR s.token=?) AND s.expires_at>CURRENT_TIMESTAMP LIMIT 1
+  `).bind(tokenHash,token).first();
   if(!row||!row.id) return null;
+
+  // Migra silenciosamente sessões antigas que guardavam o token bruto.
+  if(row.session_token===token) {
+    try{await db.prepare("UPDATE OR IGNORE nexus_sessions SET token=? WHERE token=?").bind(tokenHash,token).run()}catch{}
+  }
+
   return {
     id:Number(row.id),
     name:String(row.name||"Usuário"),
@@ -1795,17 +2686,19 @@ async function currentUser(request, db) {
 }
 
 async function createSession(db, userId) {
-  const token = randomHex(32);
-  const expires = new Date(Date.now() + SESSION_DAYS * 86400000).toISOString().replace("T"," ").replace("Z","");
-  await db.prepare("INSERT INTO nexus_sessions(token,user_id,expires_at) VALUES(?,?,?)").bind(token,userId,expires).run();
+  const token=randomHex(32);
+  const tokenHash=await sha256Hex("session:"+token);
+  const expires=new Date(Date.now()+SESSION_DAYS*86400000).toISOString().replace("T"," ").replace("Z","");
+  await db.prepare("INSERT INTO nexus_sessions(token,user_id,expires_at) VALUES(?,?,?)").bind(tokenHash,userId,expires).run();
   return token;
 }
 
 function sessionCookie(token) {
-  return `bn_session=${token}; Path=/; Max-Age=${SESSION_DAYS*86400}; HttpOnly; Secure; SameSite=Lax`;
+  return `__Host-bn_session=${token}; Path=/; Max-Age=${SESSION_DAYS*86400}; HttpOnly; Secure; SameSite=Lax`;
 }
+
 function expiredCookie() {
-  return "bn_session=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax";
+  return "__Host-bn_session=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax";
 }
 
 function redirect(path, request, cookie = "") {
@@ -2619,6 +3512,38 @@ html{scroll-behavior:smooth}
   .lp-mobile-bar a{text-align:center;text-decoration:none;border-radius:10px;padding:12px 8px;font-size:11px;font-weight:950}.lp-mobile-bar a:first-child{background:#b8860b;color:#fff}.lp-mobile-bar a:last-child{background:#18150e;color:#fff}
 }
 
+
+/* === FINANCEIRO / PIX / SAQUES v0.5 === */
+.finance-note{max-width:1000px}
+.finance-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;max-width:1000px;margin:12px 0}
+.finance-panel{max-width:none;height:100%}
+.finance-panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px}
+.finance-panel-head h3{margin:8px 0 0;font-size:20px}
+.finance-row{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:11px 0;border-bottom:1px solid #E5E2DC}
+.finance-row:last-child{border-bottom:0}
+.finance-row b,.finance-row small{display:block}.finance-row small{margin-top:4px;color:#716E69;line-height:1.4}
+.finance-status{display:inline-flex;align-items:center;justify-content:center;min-height:28px;border-radius:999px;padding:5px 9px;font-size:10px;font-weight:900;white-space:nowrap;border:1px solid #BBB9B6;background:#F7F6F1}
+.finance-status.pending{color:#86672A;border-color:#E0B55A;background:#FFF9E9}
+.finance-status.approved{color:#4D4A45;border-color:#BBB9B6}
+.finance-status.paid{color:#0A0A0A;border-color:#BC913C;background:#F3E6BE}
+.finance-status.rejected,.finance-status.cancelled,.finance-status.expired,.finance-status.refunded{color:#8B2F2F;border-color:#D8A5A5;background:#FFF5F5}.finance-status.review_required{color:#6B4E00;border-color:#E0B55A;background:#FFF9E9}
+.pix-charge-panel{max-width:1000px;margin-top:14px}
+.pix-grid{display:grid;grid-template-columns:280px minmax(0,1fr);gap:22px;align-items:center}
+.pix-qr{background:#FFFFFF;border:1px solid #DAD7D2;border-radius:18px;padding:14px;display:grid;place-items:center}
+.pix-qr img{display:block;width:100%;max-width:250px;height:auto}
+.pix-payload{min-height:120px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;word-break:break-all}
+.copy-pix{margin-top:8px}
+.security-notice{max-width:1000px}
+.admin-metrics{grid-template-columns:repeat(4,minmax(0,1fr));max-width:none}
+.admin-config-panel{max-width:none;display:flex;justify-content:space-between;align-items:center;gap:16px}
+.admin-config-panel form{margin:0}
+.admin-table small{overflow-wrap:anywhere}
+@media(max-width:900px){
+  .finance-grid,.pix-grid{grid-template-columns:1fr}
+  .pix-qr{max-width:320px}
+  .admin-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+
 @media(max-width:520px){
   .head-name{display:none}
   .pill{font-size:9px;padding:5px 7px}
@@ -2642,6 +3567,11 @@ html{scroll-behavior:smooth}
   .mission-row-pay>b{margin:0}
   .pagination{grid-template-columns:1fr}.pagination>*{justify-self:stretch!important}
   .toolbar{align-items:flex-start;flex-direction:column}
+  .finance-grid,.pix-grid,.admin-metrics{grid-template-columns:1fr}
+  .finance-row{flex-direction:column}
+  .finance-status{align-self:flex-start}
+  .admin-config-panel{align-items:flex-start;flex-direction:column}
+  .pix-qr{max-width:none;width:100%}
 }
 
 
@@ -2776,6 +3706,38 @@ ${body}
     });
   });
 
+
+  document.querySelectorAll("form[method='post']").forEach(form=>{
+    form.addEventListener("submit",e=>{
+      if(form.dataset.submitting==="1"){
+        e.preventDefault();
+        return;
+      }
+      form.dataset.submitting="1";
+      const btn=form.querySelector("button[type='submit'],button:not([type])");
+      if(btn){
+        btn.dataset.originalText=btn.textContent;
+        btn.disabled=true;
+        btn.textContent="Processando…";
+      }
+    });
+  });
+
+  document.querySelectorAll(".copy-pix").forEach(btn=>{
+    btn.addEventListener("click",async()=>{
+      const value=btn.dataset.copy||"";
+      if(!value)return;
+      try{
+        await navigator.clipboard.writeText(value);
+        const old=btn.textContent;
+        btn.textContent="Código copiado ✓";
+        setTimeout(()=>btn.textContent=old,1800);
+      }catch{
+        const area=btn.closest(".pix-charge-panel")?.querySelector(".pix-payload");
+        if(area){area.focus();area.select();document.execCommand("copy");}
+      }
+    });
+  });
 
   const reveals=[...document.querySelectorAll(".reveal")];
   if(reveals.length){
