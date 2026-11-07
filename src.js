@@ -2,500 +2,849 @@ const MIN_REWARD = 2.50;
 const DAILY_GOAL = 50.00;
 const MAX_IMAGE_CHARS = 200000;
 const SESSION_DAYS = 30;
-const CATEGORIES = ["Pesquisa", "Teste", "Opinião", "Levantamento"];
+
+let schemaPromise = null;
 
 export default {
   async fetch(request, env) {
+    const url = new URL(request.url);
+
     try {
-      const url = new URL(request.url);
-      if (url.pathname.startsWith("/api/")) return await api(request, env, url);
-      return html(APP_HTML);
-    } catch (err) {
-      console.error(err);
-      return json({ error: "Erro interno", detail: String(err?.message || err) }, 500);
+      if (!env.DB) {
+        return page("Banco não conectado", `
+          <div class="auth-wrap">
+            <div class="auth-card">
+              <div class="brand big">BERN <b>NEXUS</b></div>
+              <h1>Falta conectar o D1</h1>
+              <p class="muted">Este Worker precisa do binding <b>DB</b> apontando para seu banco D1.</p>
+              <div class="notice">No seu painel Cloudflare: Worker → Settings → Bindings → D1 database → variável <b>DB</b>.</div>
+            </div>
+          </div>`, 503);
+      }
+
+      await ensureSchema(env.DB);
+
+      if (request.method === "POST") {
+        const origin = request.headers.get("origin");
+        if (origin && origin !== url.origin) {
+          return page("Ação bloqueada", messageCard("Origem inválida.", true), 403);
+        }
+      }
+
+      const user = await currentUser(request, env.DB);
+      const path = url.pathname;
+
+      if (request.method === "GET" && path === "/login") {
+        if (user) return redirect("/", request);
+        return renderAuth("login", url);
+      }
+
+      if (request.method === "GET" && path === "/register") {
+        if (user) return redirect("/", request);
+        return renderAuth("register", url);
+      }
+
+      if (request.method === "POST" && path === "/register") {
+        if (user) return redirect("/", request);
+        return await handleRegister(request, env.DB);
+      }
+
+      if (request.method === "POST" && path === "/login") {
+        if (user) return redirect("/", request);
+        return await handleLogin(request, env.DB);
+      }
+
+      if (request.method === "POST" && path === "/logout") {
+        return await handleLogout(request, env.DB);
+      }
+
+      if (!user) return redirect("/login", request);
+
+      if (request.method === "POST" && path === "/missions/create") {
+        return await handleCreateMission(request, env.DB, user);
+      }
+
+      const start = path.match(/^\/missions\/(\d+)\/start$/);
+      if (request.method === "POST" && start) {
+        return await handleStartMission(request, env.DB, user, Number(start[1]));
+      }
+
+      const submit = path.match(/^\/submissions\/(\d+)\/submit$/);
+      if (request.method === "POST" && submit) {
+        return await handleSubmitWork(request, env.DB, user, Number(submit[1]));
+      }
+
+      const review = path.match(/^\/submissions\/(\d+)\/(approve|reject)$/);
+      if (request.method === "POST" && review) {
+        return await handleReview(request, env.DB, user, Number(review[1]), review[2]);
+      }
+
+      const toggle = path.match(/^\/missions\/(\d+)\/(open|close)$/);
+      if (request.method === "POST" && toggle) {
+        return await handleMissionStatus(request, env.DB, user, Number(toggle[1]), toggle[2] === "open" ? "open" : "closed");
+      }
+
+      if (request.method === "GET" && path === "/") {
+        return await renderDashboard(request, env.DB, user, url);
+      }
+
+      return redirect("/", request);
+    } catch (e) {
+      console.error("BERN NEXUS ERROR", e);
+      return page("Erro", `
+        <div class="auth-wrap">
+          <div class="auth-card">
+            <div class="brand big">BERN <b>NEXUS</b></div>
+            <h1>Algo deu errado</h1>
+            <p class="muted">${esc(String(e?.message || e))}</p>
+            <a class="btn primary wide linkbtn" href="/">Voltar ao início</a>
+          </div>
+        </div>`, 500);
     }
   }
 };
 
-async function api(request, env, url) {
-  if (!env.DB) return json({ error: "D1 não configurado. Adicione o binding DB." }, 503);
+async function ensureSchema(db) {
+  if (!schemaPromise) {
+    schemaPromise = (async () => {
+      const statements = [
+        `CREATE TABLE IF NOT EXISTS users (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          email TEXT NOT NULL UNIQUE,
+          password_hash TEXT NOT NULL,
+          password_salt TEXT NOT NULL,
+          role TEXT NOT NULL DEFAULT 'worker',
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )`,
+        `CREATE TABLE IF NOT EXISTS sessions (
+          token TEXT PRIMARY KEY,
+          user_id INTEGER NOT NULL,
+          expires_at TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )`,
+        `CREATE TABLE IF NOT EXISTS missions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          client_id INTEGER,
+          title TEXT NOT NULL,
+          category TEXT NOT NULL,
+          description TEXT NOT NULL,
+          instructions TEXT NOT NULL,
+          reward REAL NOT NULL,
+          slots INTEGER NOT NULL,
+          image_data TEXT,
+          status TEXT NOT NULL DEFAULT 'open',
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )`,
+        `CREATE TABLE IF NOT EXISTS submissions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          mission_id INTEGER NOT NULL,
+          worker_id INTEGER NOT NULL,
+          status TEXT NOT NULL DEFAULT 'started',
+          answer TEXT,
+          proof_image TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          submitted_at TEXT,
+          reviewed_at TEXT,
+          UNIQUE(mission_id, worker_id)
+        )`,
+        `CREATE TABLE IF NOT EXISTS wallet_ledger (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL,
+          amount REAL NOT NULL,
+          type TEXT NOT NULL,
+          source_ref TEXT UNIQUE,
+          description TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )`,
+        `CREATE INDEX IF NOT EXISTS idx_missions_status ON missions(status, created_at)`,
+        `CREATE INDEX IF NOT EXISTS idx_submissions_worker ON submissions(worker_id, created_at)`,
+        `CREATE INDEX IF NOT EXISTS idx_submissions_mission ON submissions(mission_id, status)`,
+        `CREATE INDEX IF NOT EXISTS idx_wallet_user ON wallet_ledger(user_id, created_at)`
+      ];
+      await db.batch(statements.map(sql => db.prepare(sql)));
+      return true;
+    })().catch(err => {
+      schemaPromise = null;
+      throw err;
+    });
+  }
+  return schemaPromise;
+}
 
-  const method = request.method.toUpperCase();
-  const path = url.pathname;
+async function handleRegister(request, db) {
+  const f = await request.formData();
+  const name = clean(f.get("name"), 80);
+  const email = clean(f.get("email"), 160).toLowerCase();
+  const password = String(f.get("password") || "");
+  const role = ["worker","client","both"].includes(String(f.get("role"))) ? String(f.get("role")) : "worker";
 
-  if (method === "GET" && path === "/api/health") {
-    try {
-      const expected = ["users","sessions","missions","submissions","wallet_ledger"];
-      const rows = await env.DB.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
-      ).all();
-      const tables = (rows.results || []).map(x => x.name);
-      const missing = expected.filter(x => !tables.includes(x));
-      return json({
-        ok: missing.length === 0,
-        db_binding: true,
-        tables,
-        missing_tables: missing,
-        message: missing.length
-          ? "D1 conectado, mas faltam tabelas. Execute as migrations."
-          : "D1 conectado e estrutura principal pronta."
-      }, missing.length ? 503 : 200);
-    } catch (e) {
-      return json({
-        ok: false,
-        db_binding: true,
-        message: "O binding DB existe, mas a consulta de diagnóstico falhou.",
-        detail: String(e?.message || e)
-      }, 500);
-    }
+  if (name.length < 2) return redirect("/register?err=" + enc("Informe seu nome."), request);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return redirect("/register?err=" + enc("E-mail inválido."), request);
+  if (password.length < 6) return redirect("/register?err=" + enc("A senha precisa ter pelo menos 6 caracteres."), request);
+
+  const exists = await db.prepare("SELECT id FROM users WHERE email=? LIMIT 1").bind(email).first();
+  if (exists) return redirect("/login?err=" + enc("Esse e-mail já está cadastrado."), request);
+
+  const salt = randomHex(16);
+  const hash = await hashPassword(password, salt);
+  const r = await db.prepare(
+    "INSERT INTO users(name,email,password_hash,password_salt,role) VALUES(?,?,?,?,?)"
+  ).bind(name,email,hash,salt,role).run();
+
+  const userId = Number(r.meta?.last_row_id || 0);
+  if (!userId) throw new Error("Não foi possível criar o usuário.");
+
+  const token = await createSession(db, userId);
+  return redirect("/?msg=" + enc("Conta criada. Bem-vindo ao Bern Nexus!"), request, sessionCookie(token));
+}
+
+async function handleLogin(request, db) {
+  const f = await request.formData();
+  const email = clean(f.get("email"), 160).toLowerCase();
+  const password = String(f.get("password") || "");
+  const row = await db.prepare("SELECT * FROM users WHERE email=? LIMIT 1").bind(email).first();
+  if (!row) return redirect("/login?err=" + enc("E-mail ou senha incorretos."), request);
+
+  const hash = await hashPassword(password, row.password_salt);
+  if (!safeEqual(hash, row.password_hash)) {
+    return redirect("/login?err=" + enc("E-mail ou senha incorretos."), request);
   }
 
-  const user = await currentUser(request, env);
+  const token = await createSession(db, row.id);
+  return redirect("/?msg=" + enc("Login realizado."), request, sessionCookie(token));
+}
 
-  if (method === "POST" && path === "/api/register") {
-    const body = await bodyJson(request);
-    const name = clean(body.name, 80);
-    const email = clean(body.email, 160).toLowerCase();
-    const password = String(body.password || "");
-    const role = ["worker","client","both"].includes(body.role) ? body.role : "worker";
-    if (name.length < 2) return json({error:"Informe seu nome."}, 400);
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({error:"E-mail inválido."}, 400);
-    if (password.length < 6) return json({error:"A senha precisa ter ao menos 6 caracteres."}, 400);
-    const exists = await env.DB.prepare("SELECT id FROM users WHERE email=?").bind(email).first();
-    if (exists) return json({error:"Este e-mail já está cadastrado."}, 409);
+async function handleLogout(request, db) {
+  const token = getCookie(request, "bn_session");
+  if (token) await db.prepare("DELETE FROM sessions WHERE token=?").bind(token).run();
+  return redirect("/login?msg=" + enc("Você saiu da conta."), request, expiredCookie());
+}
 
-    const salt = randomHex(16);
-    const password_hash = await hashPassword(password, salt);
-    const r = await env.DB.prepare(
-      "INSERT INTO users(name,email,password_hash,password_salt,role) VALUES(?,?,?,?,?)"
-    ).bind(name,email,password_hash,salt,role).run();
-    const userId = Number(r.meta?.last_row_id || 0);
-    if (!userId) throw new Error("Não foi possível obter o ID do usuário criado.");
-    return await createSessionResponse(env, userId, { ok:true });
+async function handleCreateMission(request, db, user) {
+  if (!canClient(user)) return redirect("/?view=create&err=" + enc("Seu perfil não pode publicar missões."), request);
+
+  const f = await request.formData();
+  const title = clean(f.get("title"), 100);
+  const category = ["Pesquisa","Teste","Opinião","Levantamento"].includes(String(f.get("category"))) ? String(f.get("category")) : "Pesquisa";
+  const description = clean(f.get("description"), 500);
+  const instructions = clean(f.get("instructions"), 1500);
+  const reward = Number(String(f.get("reward") || "0").replace(",", "."));
+  const slots = Math.floor(Number(f.get("slots")));
+  const image = String(f.get("image_data") || "");
+
+  if (title.length < 5 || description.length < 10 || instructions.length < 10) {
+    return redirect("/?view=create&err=" + enc("Preencha título, descrição e instruções com mais detalhes."), request);
+  }
+  if (!Number.isFinite(reward) || reward < MIN_REWARD || reward > 500) {
+    return redirect("/?view=create&err=" + enc("A recompensa mínima é R$ 2,50."), request);
+  }
+  if (!Number.isInteger(slots) || slots < 1 || slots > 500) {
+    return redirect("/?view=create&err=" + enc("Informe entre 1 e 500 vagas."), request);
+  }
+  if (image && (!image.startsWith("data:image/jpeg;base64,") || image.length > MAX_IMAGE_CHARS)) {
+    return redirect("/?view=create&err=" + enc("A imagem ficou grande demais. Escolha outra imagem."), request);
   }
 
-  if (method === "POST" && path === "/api/login") {
-    const body = await bodyJson(request);
-    const email = clean(body.email,160).toLowerCase();
-    const password = String(body.password || "");
-    const row = await env.DB.prepare("SELECT * FROM users WHERE email=?").bind(email).first();
-    if (!row) return json({error:"E-mail ou senha incorretos."}, 401);
-    const candidate = await hashPassword(password, row.password_salt);
-    if (!safeEqual(candidate, row.password_hash)) return json({error:"E-mail ou senha incorretos."}, 401);
-    return await createSessionResponse(env, row.id, { ok:true });
+  await db.prepare(`
+    INSERT INTO missions(client_id,title,category,description,instructions,reward,slots,image_data,status)
+    VALUES(?,?,?,?,?,?,?,?, 'open')
+  `).bind(user.id,title,category,description,instructions,reward,slots,image || null).run();
+
+  return redirect("/?view=client&msg=" + enc("Missão publicada com sucesso."), request);
+}
+
+async function handleStartMission(request, db, user, missionId) {
+  if (!canWorker(user)) return redirect("/?err=" + enc("Seu perfil não pode executar missões."), request);
+
+  const mission = await db.prepare("SELECT * FROM missions WHERE id=? LIMIT 1").bind(missionId).first();
+  if (!mission || mission.status !== "open") return redirect("/?err=" + enc("Missão indisponível."), request);
+  if (Number(mission.client_id) === Number(user.id)) return redirect("/?err=" + enc("Você não pode executar sua própria missão."), request);
+
+  const occupied = await db.prepare(
+    "SELECT COUNT(*) c FROM submissions WHERE mission_id=? AND status IN ('started','submitted','approved')"
+  ).bind(missionId).first();
+
+  if (Number(occupied?.c || 0) >= Number(mission.slots)) {
+    return redirect("/?err=" + enc("As vagas desta missão acabaram."), request);
   }
 
-  if (method === "POST" && path === "/api/logout") {
-    const token = getCookie(request, "bn_session");
-    if (token) await env.DB.prepare("DELETE FROM sessions WHERE token=?").bind(token).run();
-    return json({ok:true}, 200, {"set-cookie": expiredCookie()});
+  const already = await db.prepare(
+    "SELECT id,status FROM submissions WHERE mission_id=? AND worker_id=? LIMIT 1"
+  ).bind(missionId,user.id).first();
+
+  if (already) {
+    return redirect("/?view=mine&msg=" + enc("Você já iniciou essa missão."), request);
   }
 
-  if (method === "GET" && path === "/api/me") {
-    return json({ user: user ? publicUser(user) : null, min_reward: MIN_REWARD, daily_goal: DAILY_GOAL });
+  await db.prepare(
+    "INSERT INTO submissions(mission_id,worker_id,status) VALUES(?,?,'started')"
+  ).bind(missionId,user.id).run();
+
+  return redirect("/?view=mine&msg=" + enc("Missão aceita. Agora envie o trabalho."), request);
+}
+
+async function handleSubmitWork(request, db, user, submissionId) {
+  if (!canWorker(user)) return redirect("/?view=mine&err=" + enc("Perfil sem acesso."), request);
+
+  const f = await request.formData();
+  const answer = clean(f.get("answer"), 3000);
+  const proof = String(f.get("proof_image") || "");
+
+  if (answer.length < 3) return redirect("/?view=mine&err=" + enc("Descreva o trabalho realizado."), request);
+  if (proof && (!proof.startsWith("data:image/jpeg;base64,") || proof.length > MAX_IMAGE_CHARS)) {
+    return redirect("/?view=mine&err=" + enc("O comprovante ficou grande demais."), request);
   }
 
-  if (!user) return json({error:"Faça login para continuar."}, 401);
+  const r = await db.prepare(`
+    UPDATE submissions
+    SET answer=?, proof_image=?, status='submitted', submitted_at=CURRENT_TIMESTAMP
+    WHERE id=? AND worker_id=? AND status='started'
+  `).bind(answer, proof || null, submissionId, user.id).run();
 
-  if (method === "GET" && path === "/api/missions") {
-    const category = clean(url.searchParams.get("category") || "", 40);
-    let sql = `
-      SELECT m.id,m.title,m.category,m.description,m.instructions,m.reward,m.slots,m.image_data,m.created_at,
-      u.name AS client_name,
-      (SELECT COUNT(*) FROM submissions s WHERE s.mission_id=m.id AND s.status IN ('started','submitted','approved')) AS occupied
+  if (!r.meta?.changes) return redirect("/?view=mine&err=" + enc("Essa missão não pode mais ser enviada."), request);
+  return redirect("/?view=mine&msg=" + enc("Trabalho enviado para aprovação."), request);
+}
+
+async function handleReview(request, db, user, submissionId, action) {
+  if (!canClient(user)) return redirect("/?view=client&err=" + enc("Perfil sem acesso."), request);
+
+  const s = await db.prepare(`
+    SELECT s.id,s.worker_id,s.status,m.reward,m.client_id,m.title
+    FROM submissions s JOIN missions m ON m.id=s.mission_id
+    WHERE s.id=? AND m.client_id=? LIMIT 1
+  `).bind(submissionId,user.id).first();
+
+  if (!s) return redirect("/?view=client&err=" + enc("Envio não encontrado."), request);
+  if (s.status !== "submitted") return redirect("/?view=client&err=" + enc("Esse envio já foi revisado."), request);
+
+  if (action === "reject") {
+    await db.prepare(
+      "UPDATE submissions SET status='rejected',reviewed_at=CURRENT_TIMESTAMP WHERE id=? AND status='submitted'"
+    ).bind(submissionId).run();
+    return redirect("/?view=client&msg=" + enc("Trabalho rejeitado."), request);
+  }
+
+  await db.batch([
+    db.prepare(`
+      INSERT OR IGNORE INTO wallet_ledger(user_id,amount,type,source_ref,description)
+      VALUES(?,?,'mission_reward',?,?)
+    `).bind(s.worker_id,Number(s.reward),`submission:${submissionId}`,`Missão aprovada: ${clean(s.title,100)}`),
+    db.prepare(
+      "UPDATE submissions SET status='approved',reviewed_at=CURRENT_TIMESTAMP WHERE id=? AND status='submitted'"
+    ).bind(submissionId)
+  ]);
+
+  return redirect("/?view=client&msg=" + enc("Trabalho aprovado e recompensa creditada."), request);
+}
+
+async function handleMissionStatus(request, db, user, missionId, status) {
+  if (!canClient(user)) return redirect("/?view=client&err=" + enc("Perfil sem acesso."), request);
+  await db.prepare("UPDATE missions SET status=? WHERE id=? AND client_id=?").bind(status,missionId,user.id).run();
+  return redirect("/?view=client&msg=" + enc(status === "open" ? "Missão reaberta." : "Missão fechada."), request);
+}
+
+async function renderDashboard(request, db, user, url) {
+  const view = ["home","mine","create","client","profile"].includes(url.searchParams.get("view"))
+    ? url.searchParams.get("view") : "home";
+
+  const msg = url.searchParams.get("msg") || "";
+  const err = url.searchParams.get("err") || "";
+
+  const [wallet, today, missions, mine, clientMissions, clientSubs] = await Promise.all([
+    db.prepare("SELECT COALESCE(SUM(amount),0) v FROM wallet_ledger WHERE user_id=?").bind(user.id).first(),
+    db.prepare(`
+      SELECT COALESCE(SUM(amount),0) v FROM wallet_ledger
+      WHERE user_id=? AND date(created_at,'-3 hours')=date('now','-3 hours')
+    `).bind(user.id).first(),
+    db.prepare(`
+      SELECT m.*, u.name client_name,
+        (SELECT COUNT(*) FROM submissions s WHERE s.mission_id=m.id AND s.status IN ('started','submitted','approved')) occupied
       FROM missions m LEFT JOIN users u ON u.id=m.client_id
-      WHERE m.status='open'`;
-    const binds = [];
-    if (category && CATEGORIES.includes(category)) { sql += " AND m.category=?"; binds.push(category); }
-    sql += " ORDER BY m.created_at DESC LIMIT 100";
-    const rows = await env.DB.prepare(sql).bind(...binds).all();
-    return json({missions: rows.results || []});
-  }
-
-  if (method === "POST" && path === "/api/missions") {
-    if (!canClient(user)) return json({error:"Seu perfil não pode publicar missões."}, 403);
-    const b = await bodyJson(request);
-    const title = clean(b.title,100);
-    const category = CATEGORIES.includes(b.category) ? b.category : "Pesquisa";
-    const description = clean(b.description,500);
-    const instructions = clean(b.instructions,1500);
-    const reward = Number(b.reward);
-    const slots = Math.floor(Number(b.slots));
-    const image = String(b.image_data || "");
-    if (title.length < 5 || description.length < 10 || instructions.length < 10) return json({error:"Preencha título, descrição e instruções com mais detalhes."},400);
-    if (!Number.isFinite(reward) || reward < MIN_REWARD || reward > 500) return json({error:`A recompensa deve ser entre R$ ${MIN_REWARD.toFixed(2).replace(".",",")} e R$ 500,00.`},400);
-    if (!Number.isInteger(slots) || slots < 1 || slots > 500) return json({error:"As vagas devem ficar entre 1 e 500."},400);
-    if (image && (!image.startsWith("data:image/jpeg;base64,") && !image.startsWith("data:image/webp;base64,"))) return json({error:"Formato de imagem inválido."},400);
-    if (image.length > MAX_IMAGE_CHARS) return json({error:"Imagem muito grande. Use uma imagem menor."},413);
-
-    const row = await env.DB.prepare(`
-      INSERT INTO missions(client_id,title,category,description,instructions,reward,slots,image_data,status)
-      VALUES(?,?,?,?,?,?,?,?, 'open')
-    `).bind(user.id,title,category,description,instructions,reward,slots,image || null).run();
-    const missionId = Number(row.meta?.last_row_id || 0);
-    if (!missionId) throw new Error("Não foi possível obter o ID da missão criada.");
-    return json({ok:true,id:missionId});
-  }
-
-  const startMatch = path.match(/^\/api\/missions\/(\d+)\/start$/);
-  if (method === "POST" && startMatch) {
-    if (!canWorker(user)) return json({error:"Seu perfil não pode executar missões."},403);
-    const missionId = Number(startMatch[1]);
-    const mission = await env.DB.prepare("SELECT id,client_id,status,slots FROM missions WHERE id=?").bind(missionId).first();
-    if (!mission || mission.status !== "open") return json({error:"Missão indisponível."},404);
-    if (mission.client_id === user.id) return json({error:"Você não pode executar sua própria missão."},400);
-
-    try {
-      const result = await env.DB.prepare(`
-        INSERT INTO submissions(mission_id,worker_id,status)
-        SELECT ?, ?, 'started'
-        WHERE (SELECT COUNT(*) FROM submissions WHERE mission_id=? AND status IN ('started','submitted','approved'))
-              < (SELECT slots FROM missions WHERE id=? AND status='open')
-      `).bind(missionId,user.id,missionId,missionId).run();
-      if (!result.meta?.changes) return json({error:"As vagas desta missão acabaram."},409);
-    } catch (e) {
-      if (String(e).includes("UNIQUE")) return json({error:"Você já iniciou esta missão."},409);
-      throw e;
-    }
-    const row = await env.DB.prepare("SELECT id FROM submissions WHERE mission_id=? AND worker_id=?").bind(missionId,user.id).first();
-    return json({ok:true,submission_id:row.id});
-  }
-
-  const submitMatch = path.match(/^\/api\/submissions\/(\d+)\/submit$/);
-  if (method === "POST" && submitMatch) {
-    const id = Number(submitMatch[1]);
-    const b = await bodyJson(request);
-    const answer = clean(b.answer,3000);
-    const proof = String(b.proof_image || "");
-    if (answer.length < 3) return json({error:"Envie uma resposta ou descrição do trabalho."},400);
-    if (proof && (!proof.startsWith("data:image/jpeg;base64,") && !proof.startsWith("data:image/webp;base64,"))) return json({error:"Comprovante inválido."},400);
-    if (proof.length > MAX_IMAGE_CHARS) return json({error:"Comprovante muito grande."},413);
-    const r = await env.DB.prepare(`
-      UPDATE submissions SET answer=?, proof_image=?, status='submitted', submitted_at=CURRENT_TIMESTAMP
-      WHERE id=? AND worker_id=? AND status='started'
-    `).bind(answer,proof || null,id,user.id).run();
-    if (!r.meta?.changes) return json({error:"Essa missão não pode mais ser enviada."},409);
-    return json({ok:true});
-  }
-
-  if (method === "GET" && path === "/api/my-submissions") {
-    const rows = await env.DB.prepare(`
-      SELECT s.id,s.status,s.answer,s.proof_image,s.created_at,s.submitted_at,s.reviewed_at,
-             m.id mission_id,m.title,m.category,m.reward,m.image_data,m.description
+      WHERE m.status='open'
+      ORDER BY m.created_at DESC LIMIT 100
+    `).all(),
+    canWorker(user) ? db.prepare(`
+      SELECT s.*,m.title,m.category,m.reward,m.description,m.image_data
       FROM submissions s JOIN missions m ON m.id=s.mission_id
       WHERE s.worker_id=? ORDER BY s.created_at DESC
-    `).bind(user.id).all();
-    return json({submissions:rows.results || []});
-  }
-
-  if (method === "GET" && path === "/api/client/missions") {
-    if (!canClient(user)) return json({error:"Perfil sem acesso."},403);
-    const rows = await env.DB.prepare(`
+    `).bind(user.id).all() : Promise.resolve({results:[]}),
+    canClient(user) ? db.prepare(`
       SELECT m.*,
-       (SELECT COUNT(*) FROM submissions s WHERE s.mission_id=m.id) submissions_count,
-       (SELECT COUNT(*) FROM submissions s WHERE s.mission_id=m.id AND s.status='approved') approved_count
+        (SELECT COUNT(*) FROM submissions s WHERE s.mission_id=m.id) submissions_count,
+        (SELECT COUNT(*) FROM submissions s WHERE s.mission_id=m.id AND s.status='approved') approved_count
       FROM missions m WHERE m.client_id=? ORDER BY m.created_at DESC
-    `).bind(user.id).all();
-    return json({missions:rows.results || []});
-  }
-
-  if (method === "GET" && path === "/api/client/submissions") {
-    if (!canClient(user)) return json({error:"Perfil sem acesso."},403);
-    const missionId = Number(url.searchParams.get("mission_id") || 0);
-    const rows = await env.DB.prepare(`
-      SELECT s.id,s.status,s.answer,s.proof_image,s.submitted_at,s.created_at,
-             w.name worker_name,w.email worker_email,
-             m.id mission_id,m.title,m.reward
+    `).bind(user.id).all() : Promise.resolve({results:[]}),
+    canClient(user) ? db.prepare(`
+      SELECT s.*,w.name worker_name,m.title,m.reward,m.client_id
       FROM submissions s
       JOIN missions m ON m.id=s.mission_id
       JOIN users w ON w.id=s.worker_id
-      WHERE m.client_id=? AND (?=0 OR m.id=?)
+      WHERE m.client_id=?
       ORDER BY CASE s.status WHEN 'submitted' THEN 0 ELSE 1 END, s.created_at DESC
-    `).bind(user.id,missionId,missionId).all();
-    return json({submissions:rows.results || []});
-  }
+    `).bind(user.id).all() : Promise.resolve({results:[]})
+  ]);
 
-  const reviewMatch = path.match(/^\/api\/submissions\/(\d+)\/review$/);
-  if (method === "POST" && reviewMatch) {
-    if (!canClient(user)) return json({error:"Perfil sem acesso."},403);
-    const sid = Number(reviewMatch[1]);
-    const b = await bodyJson(request);
-    const action = b.action === "approve" ? "approve" : b.action === "reject" ? "reject" : "";
-    if (!action) return json({error:"Ação inválida."},400);
-    const s = await env.DB.prepare(`
-      SELECT s.id,s.worker_id,s.status,m.reward,m.client_id,m.title
-      FROM submissions s JOIN missions m ON m.id=s.mission_id
-      WHERE s.id=? AND m.client_id=?
-    `).bind(sid,user.id).first();
-    if (!s) return json({error:"Envio não encontrado."},404);
-    if (s.status !== "submitted") return json({error:"Este envio já foi revisado."},409);
+  const balance = Number(wallet?.v || 0);
+  const earnedToday = Number(today?.v || 0);
+  const progress = Math.min(100, Math.max(0, earnedToday / DAILY_GOAL * 100));
 
-    if (action === "reject") {
-      await env.DB.prepare("UPDATE submissions SET status='rejected',reviewed_at=CURRENT_TIMESTAMP WHERE id=? AND status='submitted'").bind(sid).run();
-      return json({ok:true});
-    }
+  const body = `
+    <div class="app">
+      <header>
+        <div class="toprow">
+          <a class="brand" href="/">BERN <b>NEXUS</b></a>
+          <span class="pill">${roleLabel(user.role)}</span>
+        </div>
+      </header>
 
-    await env.DB.batch([
-      env.DB.prepare(`
-        INSERT OR IGNORE INTO wallet_ledger(user_id,amount,type,source_ref,description)
-        VALUES(?,?,'mission_reward',?,?)
-      `).bind(s.worker_id,Number(s.reward),`submission:${sid}`,`Missão aprovada: ${clean(s.title,100)}`),
-      env.DB.prepare("UPDATE submissions SET status='approved',reviewed_at=CURRENT_TIMESTAMP WHERE id=? AND status='submitted'").bind(sid)
-    ]);
-    return json({ok:true});
-  }
+      <main>
+        ${msg ? `<div class="flash ok">${esc(msg)}</div>` : ""}
+        ${err ? `<div class="flash err">${esc(err)}</div>` : ""}
 
-  if (method === "POST" && path === "/api/client/mission-status") {
-    if (!canClient(user)) return json({error:"Perfil sem acesso."},403);
-    const b = await bodyJson(request);
-    const id = Number(b.id);
-    const status = b.status === "closed" ? "closed" : b.status === "open" ? "open" : "";
-    if (!status) return json({error:"Status inválido."},400);
-    const r = await env.DB.prepare("UPDATE missions SET status=? WHERE id=? AND client_id=?").bind(status,id,user.id).run();
-    if (!r.meta?.changes) return json({error:"Missão não encontrada."},404);
-    return json({ok:true});
-  }
+        ${view === "home" ? renderHome(user, missions.results || [], earnedToday, progress) : ""}
+        ${view === "mine" ? renderMine(user, mine.results || []) : ""}
+        ${view === "create" ? renderCreate(user) : ""}
+        ${view === "client" ? renderClient(user, clientMissions.results || [], clientSubs.results || []) : ""}
+        ${view === "profile" ? renderProfile(user, balance, earnedToday) : ""}
+      </main>
 
-  if (method === "GET" && path === "/api/wallet") {
-    const sum = await env.DB.prepare("SELECT COALESCE(SUM(amount),0) balance FROM wallet_ledger WHERE user_id=?").bind(user.id).first();
-    const today = await env.DB.prepare(`
-      SELECT COALESCE(SUM(amount),0) earned_today
-      FROM wallet_ledger
-      WHERE user_id=? AND date(created_at,'-3 hours')=date('now','-3 hours')
-    `).bind(user.id).first();
-    const entries = await env.DB.prepare(`
-      SELECT id,amount,type,description,created_at FROM wallet_ledger
-      WHERE user_id=? ORDER BY created_at DESC LIMIT 50
-    `).bind(user.id).all();
-    return json({balance:Number(sum.balance||0),earned_today:Number(today.earned_today||0),goal:DAILY_GOAL,entries:entries.results||[]});
-  }
+      ${renderNav(view, user)}
+    </div>
+  `;
 
-  return json({error:"Rota não encontrada."},404);
+  return page("BERN NEXUS", body);
 }
 
-function canWorker(u){ return u && (u.role === "worker" || u.role === "both"); }
-function canClient(u){ return u && (u.role === "client" || u.role === "both"); }
-function publicUser(u){ return {id:u.id,name:u.name,email:u.email,role:u.role,created_at:u.created_at}; }
+function renderHome(user, missions, earnedToday, progress) {
+  const available = missions.filter(m =>
+    Number(m.client_id) !== Number(user.id) &&
+    Number(m.occupied || 0) < Number(m.slots)
+  );
 
-async function currentUser(request, env) {
-  const token = getCookie(request,"bn_session");
+  return `
+    <section class="hero">
+      <h1>Ganhe fazendo<br>pequenas missões.</h1>
+      <p class="muted">Pesquisas, testes e tarefas digitais rápidas feitas por pessoas reais.</p>
+    </section>
+
+    <section class="goal">
+      <div class="goalrow">
+        <div>
+          <small>Ganhos aprovados hoje</small>
+          <div class="money">${brl(earnedToday)}</div>
+        </div>
+        <div class="goalright">
+          <small>Meta visual</small>
+          <b>R$ 50/dia</b>
+        </div>
+      </div>
+      <div class="bar"><i style="width:${progress}%"></i></div>
+      <div class="goaltext">${earnedToday >= DAILY_GOAL ? "Meta atingida hoje." : `${brl(DAILY_GOAL-earnedToday)} para chegar à meta visual.`}</div>
+    </section>
+
+    <div class="notice">A meta de R$ 50/dia não é garantia de renda. Ela depende da quantidade de missões disponíveis e da aprovação dos trabalhos.</div>
+
+    <div class="section-title"><h2>Missões disponíveis</h2><span>${available.length}</span></div>
+    <div class="grid">
+      ${available.length ? available.map(m => missionCard(m, user)).join("") : `<div class="empty">Nenhuma missão disponível agora.</div>`}
+    </div>
+  `;
+}
+
+function missionCard(m, user) {
+  const left = Math.max(0, Number(m.slots)-Number(m.occupied||0));
+  return `
+    <article class="card">
+      ${m.image_data ? `<img class="cardimg" src="${m.image_data}" alt="">` : ""}
+      <div class="cardbody">
+        <div class="meta"><span class="tag">${esc(m.category).toUpperCase()}</span><span class="reward">${brl(m.reward)}</span></div>
+        <h3>${esc(m.title)}</h3>
+        <p>${esc(m.description)}</p>
+        <div class="instruction"><b>O que fazer:</b><br>${esc(m.instructions)}</div>
+        <div class="stats"><span>👤 ${esc(m.client_name || "Contratante")}</span><span>🎯 ${left} vagas</span></div>
+        ${canWorker(user) ? `
+          <form method="post" action="/missions/${m.id}/start">
+            <button class="btn primary wide">Fazer missão</button>
+          </form>` : `<div class="notice">Seu perfil é apenas de contratante.</div>`}
+      </div>
+    </article>
+  `;
+}
+
+function renderMine(user, subs) {
+  if (!canWorker(user)) return denied("Seu perfil não está habilitado para executar missões.");
+  return `
+    <section class="hero"><h1>Minhas missões</h1><p class="muted">Envie seu trabalho e acompanhe a aprovação.</p></section>
+    <div class="grid">
+      ${subs.length ? subs.map(s => `
+        <article class="card">
+          ${s.image_data ? `<img class="cardimg" src="${s.image_data}" alt="">` : ""}
+          <div class="cardbody">
+            <div class="meta">
+              <span class="status ${esc(s.status)}">${statusText(s.status)}</span>
+              <span class="reward">${brl(s.reward)}</span>
+            </div>
+            <h3>${esc(s.title)}</h3>
+            <p>${esc(s.description)}</p>
+            ${s.status === "started" ? `
+              <form method="post" action="/submissions/${s.id}/submit" class="image-form">
+                <label>Descreva o trabalho realizado</label>
+                <textarea class="field" name="answer" required minlength="3" placeholder="Digite sua resposta, resultado ou comprovação..."></textarea>
+                <label>Imagem de comprovante (opcional)</label>
+                <input class="field image-input" type="file" accept="image/jpeg,image/png,image/webp">
+                <input type="hidden" name="proof_image" class="image-data">
+                <img class="preview" alt="">
+                <button class="btn primary wide">Enviar para aprovação</button>
+              </form>
+            ` : `
+              ${s.answer ? `<div class="answer"><b>Sua resposta:</b><br>${esc(s.answer)}</div>` : ""}
+              ${s.proof_image ? `<img class="proof" src="${s.proof_image}" alt="">` : ""}
+            `}
+          </div>
+        </article>
+      `).join("") : `<div class="empty">Você ainda não iniciou nenhuma missão.</div>`}
+    </div>
+  `;
+}
+
+function renderCreate(user) {
+  if (!canClient(user)) return denied("Seu perfil foi criado apenas para realizar missões.");
+  return `
+    <section class="hero"><h1>Publicar missão</h1><p class="muted">Crie uma pequena tarefa para pessoas reais realizarem.</p></section>
+
+    <form class="panel image-form" method="post" action="/missions/create">
+      <label>Título</label>
+      <input class="field" name="title" required minlength="5" maxlength="100" placeholder="Ex.: Teste minha página e diga o que ficou confuso">
+
+      <label>Categoria</label>
+      <select class="field" name="category">
+        <option>Pesquisa</option><option>Teste</option><option>Opinião</option><option>Levantamento</option>
+      </select>
+
+      <label>Descrição curta</label>
+      <textarea class="field" name="description" required minlength="10" maxlength="500" placeholder="Explique o objetivo da missão."></textarea>
+
+      <label>Instruções</label>
+      <textarea class="field" name="instructions" required minlength="10" maxlength="1500" placeholder="Passo a passo do que a pessoa deve fazer."></textarea>
+
+      <div class="row">
+        <div>
+          <label>Recompensa por pessoa</label>
+          <input class="field reward-input" name="reward" type="number" min="2.50" max="500" step="0.50" value="2.50" required>
+        </div>
+        <div>
+          <label>Vagas</label>
+          <input class="field slots-input" name="slots" type="number" min="1" max="500" value="10" required>
+        </div>
+      </div>
+
+      <label>Imagem do card (opcional)</label>
+      <input class="field image-input" type="file" accept="image/jpeg,image/png,image/webp">
+      <input type="hidden" name="image_data" class="image-data">
+      <img class="preview" alt="">
+
+      <div class="notice budget">Orçamento demonstrativo: R$ 25,00. Ainda não existe cobrança real.</div>
+      <div class="notice">Valor mínimo por pessoa: <b>R$ 2,50</b>. Não publique curtidas, seguidores ou avaliações pagas.</div>
+
+      <button class="btn primary wide">Publicar missão</button>
+    </form>
+  `;
+}
+
+function renderClient(user, missions, subs) {
+  if (!canClient(user)) return denied("Seu perfil não possui acesso de contratante.");
+
+  return `
+    <section class="hero"><h1>Painel do contratante</h1><p class="muted">Gerencie missões e aprove os trabalhos recebidos.</p></section>
+
+    <div class="section-title"><h2>Suas missões</h2><span>${missions.length}</span></div>
+    <div class="grid">
+      ${missions.length ? missions.map(m => `
+        <article class="card">
+          ${m.image_data ? `<img class="cardimg" src="${m.image_data}" alt="">` : ""}
+          <div class="cardbody">
+            <div class="meta"><span class="tag">${esc(m.category).toUpperCase()}</span><span class="reward">${brl(m.reward)}</span></div>
+            <h3>${esc(m.title)}</h3>
+            <div class="stats"><span>${Number(m.submissions_count||0)} participações</span><span>${Number(m.approved_count||0)} aprovadas</span><span>${esc(m.status)}</span></div>
+            <form method="post" action="/missions/${m.id}/${m.status === "open" ? "close" : "open"}">
+              <button class="btn secondary wide">${m.status === "open" ? "Fechar missão" : "Reabrir missão"}</button>
+            </form>
+          </div>
+        </article>
+      `).join("") : `<div class="empty">Você ainda não publicou nenhuma missão.</div>`}
+    </div>
+
+    <div class="section-title spaced"><h2>Trabalhos recebidos</h2><span>${subs.length}</span></div>
+    <div class="grid">
+      ${subs.length ? subs.map(s => `
+        <article class="card">
+          <div class="cardbody">
+            <div class="meta"><span class="status ${esc(s.status)}">${statusText(s.status)}</span><span class="reward">${brl(s.reward)}</span></div>
+            <h3>${esc(s.title)}</h3>
+            <p><b>${esc(s.worker_name)}</b></p>
+            ${s.answer ? `<div class="answer">${esc(s.answer)}</div>` : `<p class="muted">Ainda não enviou a resposta.</p>`}
+            ${s.proof_image ? `<img class="proof" src="${s.proof_image}" alt="">` : ""}
+            ${s.status === "submitted" ? `
+              <div class="row">
+                <form method="post" action="/submissions/${s.id}/reject"><button class="btn danger wide">Rejeitar</button></form>
+                <form method="post" action="/submissions/${s.id}/approve"><button class="btn primary wide">Aprovar</button></form>
+              </div>
+            ` : ""}
+          </div>
+        </article>
+      `).join("") : `<div class="empty">Nenhum trabalho recebido ainda.</div>`}
+    </div>
+  `;
+}
+
+function renderProfile(user, balance, today) {
+  return `
+    <section class="hero"><h1>Perfil</h1></section>
+    <div class="panel">
+      <div class="userline">
+        <div class="avatar">👤</div>
+        <div><b>${esc(user.name)}</b><div class="muted small">${esc(user.email)}</div></div>
+      </div>
+      <hr>
+      <small>Saldo aprovado</small>
+      <div class="money">${brl(balance)}</div>
+      <p class="muted">Hoje: ${brl(today)}</p>
+      <div class="notice">O saldo nesta versão é interno para testar o fluxo. Ainda não existe saque Pix real.</div>
+      <form method="post" action="/logout"><button class="btn secondary wide">Sair</button></form>
+    </div>
+  `;
+}
+
+function renderNav(view, user) {
+  return `
+    <nav class="nav">
+      <a class="${view==="home"?"active":""}" href="/?view=home"><strong>⌂</strong>Início</a>
+      <a class="${view==="mine"?"active":""}" href="/?view=mine"><strong>✓</strong>Minhas</a>
+      <a class="${view==="create"?"active":""}" href="/?view=create"><strong>＋</strong>Publicar</a>
+      <a class="${view==="client"?"active":""}" href="/?view=client"><strong>▣</strong>Contratante</a>
+      <a class="${view==="profile"?"active":""}" href="/?view=profile"><strong>●</strong>Perfil</a>
+    </nav>
+  `;
+}
+
+function renderAuth(mode, url) {
+  const msg = url.searchParams.get("msg") || "";
+  const err = url.searchParams.get("err") || "";
+  const register = mode === "register";
+
+  return page("BERN NEXUS", `
+    <div class="auth-wrap">
+      <div class="auth-card">
+        <div class="brand big">BERN <b>NEXUS</b></div>
+        ${msg ? `<div class="flash ok">${esc(msg)}</div>` : ""}
+        ${err ? `<div class="flash err">${esc(err)}</div>` : ""}
+
+        <h1>${register ? "Criar conta" : "Entrar"}</h1>
+        <p class="muted">${register ? "Escolha como você quer usar a plataforma." : "Acesse sua conta do Bern Nexus."}</p>
+
+        <form method="post" action="${register ? "/register" : "/login"}">
+          ${register ? `
+            <label>Nome</label>
+            <input class="field" name="name" required minlength="2" maxlength="80">
+          ` : ""}
+          <label>E-mail</label>
+          <input class="field" name="email" type="email" required>
+          <label>Senha</label>
+          <input class="field" name="password" type="password" required minlength="6">
+          ${register ? `
+            <label>Como quer usar o Nexus?</label>
+            <select class="field" name="role">
+              <option value="worker">Quero ganhar fazendo missões</option>
+              <option value="client">Quero publicar missões</option>
+              <option value="both">Quero fazer os dois</option>
+            </select>
+          ` : ""}
+          <button class="btn primary wide">${register ? "Criar conta" : "Entrar"}</button>
+        </form>
+
+        <a class="switch" href="${register ? "/login" : "/register"}">${register ? "Já tenho conta" : "Criar minha conta"}</a>
+      </div>
+    </div>
+  `);
+}
+
+async function currentUser(request, db) {
+  const token = getCookie(request, "bn_session");
   if (!token) return null;
-  return await env.DB.prepare(`
+  return await db.prepare(`
     SELECT u.id,u.name,u.email,u.role,u.created_at
     FROM sessions s JOIN users u ON u.id=s.user_id
-    WHERE s.token=? AND s.expires_at > CURRENT_TIMESTAMP
+    WHERE s.token=? AND s.expires_at>CURRENT_TIMESTAMP
+    LIMIT 1
   `).bind(token).first();
 }
 
-async function createSessionResponse(env,userId,payload) {
+async function createSession(db, userId) {
   const token = randomHex(32);
-  await env.DB.prepare("DELETE FROM sessions WHERE user_id=? AND expires_at <= CURRENT_TIMESTAMP").bind(userId).run();
-  const expiresAt = new Date(Date.now() + SESSION_DAYS * 86400000)
-    .toISOString().replace("T"," ").replace("Z","");
-  await env.DB.prepare(`
-    INSERT INTO sessions(token,user_id,expires_at)
-    VALUES(?,?,?)
-  `).bind(token,userId,expiresAt).run();
-  return json(payload,200,{"set-cookie":sessionCookie(token)});
+  const expires = new Date(Date.now() + SESSION_DAYS * 86400000).toISOString().replace("T"," ").replace("Z","");
+  await db.prepare("INSERT INTO sessions(token,user_id,expires_at) VALUES(?,?,?)").bind(token,userId,expires).run();
+  return token;
 }
 
-function sessionCookie(token){ return `bn_session=${token}; Path=/; Max-Age=${SESSION_DAYS*86400}; HttpOnly; Secure; SameSite=Lax`; }
-function expiredCookie(){ return "bn_session=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax"; }
-function getCookie(request,name){
-  const raw=request.headers.get("cookie")||"";
-  for(const part of raw.split(";")){const [k,...v]=part.trim().split("=");if(k===name)return v.join("=");}
+function sessionCookie(token) {
+  return `bn_session=${token}; Path=/; Max-Age=${SESSION_DAYS*86400}; HttpOnly; Secure; SameSite=Lax`;
+}
+function expiredCookie() {
+  return "bn_session=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax";
+}
+
+function redirect(path, request, cookie = "") {
+  const url = new URL(path, request.url);
+  const headers = { location: url.toString() };
+  if (cookie) headers["set-cookie"] = cookie;
+  return new Response(null, { status: 303, headers });
+}
+
+function canWorker(u) { return u && (u.role === "worker" || u.role === "both"); }
+function canClient(u) { return u && (u.role === "client" || u.role === "both"); }
+
+function roleLabel(role) {
+  return role === "worker" ? "TRABALHADOR" : role === "client" ? "CONTRATANTE" : "TRABALHADOR + CONTRATANTE";
+}
+function statusText(s) {
+  return ({started:"Em andamento",submitted:"Em análise",approved:"Aprovada",rejected:"Rejeitada"})[s] || s;
+}
+function denied(text) {
+  return `<section class="hero"><h1>Acesso limitado</h1></section><div class="notice">${esc(text)}</div>`;
+}
+function messageCard(text, error=false) {
+  return `<div class="auth-wrap"><div class="auth-card"><div class="flash ${error?"err":"ok"}">${esc(text)}</div></div></div>`;
+}
+function brl(v) {
+  return new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(Number(v||0));
+}
+function enc(s) { return encodeURIComponent(s); }
+function clean(v,max) { return String(v ?? "").replace(/\u0000/g,"").trim().slice(0,max); }
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));
+}
+function getCookie(request,name) {
+  const raw = request.headers.get("cookie") || "";
+  for (const part of raw.split(";")) {
+    const [k,...v] = part.trim().split("=");
+    if (k === name) return v.join("=");
+  }
   return "";
 }
-async function bodyJson(request){ try{return await request.json()}catch{return {}} }
-function clean(v,max){ return String(v??"").replace(/\u0000/g,"").trim().slice(0,max); }
-function randomHex(bytes){ const a=new Uint8Array(bytes);crypto.getRandomValues(a);return [...a].map(x=>x.toString(16).padStart(2,"0")).join(""); }
-async function hashPassword(password,saltHex){
-  const enc=new TextEncoder();
-  const key=await crypto.subtle.importKey("raw",enc.encode(password),"PBKDF2",false,["deriveBits"]);
-  const salt=Uint8Array.from(saltHex.match(/.{1,2}/g).map(x=>parseInt(x,16)));
-  const bits=await crypto.subtle.deriveBits({name:"PBKDF2",hash:"SHA-256",salt,iterations:100000},key,256);
-  return [...new Uint8Array(bits)].map(x=>x.toString(16).padStart(2,"0")).join("");
+function randomHex(bytes) {
+  const a = new Uint8Array(bytes);
+  crypto.getRandomValues(a);
+  return [...a].map(x => x.toString(16).padStart(2,"0")).join("");
 }
-function safeEqual(a,b){
-  if(typeof a!=="string"||typeof b!=="string"||a.length!==b.length)return false;
-  let x=0;for(let i=0;i<a.length;i++)x|=a.charCodeAt(i)^b.charCodeAt(i);return x===0;
+async function hashPassword(password,saltHex) {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey("raw",enc.encode(password),"PBKDF2",false,["deriveBits"]);
+  const salt = Uint8Array.from(saltHex.match(/.{1,2}/g).map(x => parseInt(x,16)));
+  const bits = await crypto.subtle.deriveBits({name:"PBKDF2",hash:"SHA-256",salt,iterations:100000},key,256);
+  return [...new Uint8Array(bits)].map(x => x.toString(16).padStart(2,"0")).join("");
 }
-function json(data,status=200,headers={}){
-  return new Response(JSON.stringify(data),{status,headers:{"content-type":"application/json; charset=UTF-8","cache-control":"no-store",...headers}});
+function safeEqual(a,b) {
+  if (typeof a !== "string" || typeof b !== "string" || a.length !== b.length) return false;
+  let x = 0;
+  for (let i=0;i<a.length;i++) x |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return x === 0;
 }
-function html(s){ return new Response(s,{headers:{"content-type":"text/html; charset=UTF-8","cache-control":"no-store"}}); }
 
-const APP_HTML = `<!doctype html>
+function page(title, body, status=200) {
+  return new Response(`<!doctype html>
 <html lang="pt-BR">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#07111f"><title>BERN NEXUS</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#07111f">
+<title>${esc(title)}</title>
 <style>
-*{box-sizing:border-box}body{margin:0;background:#07111f;color:#edf5ff;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
-button,input,textarea,select{font:inherit}button{cursor:pointer}.app{max-width:620px;margin:auto;min-height:100vh;background:linear-gradient(180deg,#0b1727,#07111f 38%);padding-bottom:92px}
-header{position:sticky;top:0;z-index:20;padding:17px;background:rgba(7,17,31,.94);backdrop-filter:blur(12px);border-bottom:1px solid #162d42}.brand{font-weight:950;letter-spacing:.4px}.brand b{color:#51e5a5}.toprow{display:flex;justify-content:space-between;align-items:center}.pill{font-size:11px;border:1px solid #2a4159;border-radius:999px;padding:6px 9px;color:#9fb3c7}
-main{padding:16px}.hero h1{font-size:27px;line-height:1.08;margin:5px 0}.muted{color:#8fa5ba}.small{font-size:12px}.notice{padding:11px 12px;border:1px solid #5d4b2d;background:#2b2315;color:#f1d393;border-radius:13px;font-size:12px;line-height:1.4;margin:12px 0}
-.goal{background:linear-gradient(135deg,#12364b,#0b2537);border:1px solid #23506b;border-radius:20px;padding:17px;margin:14px 0}.goalrow{display:flex;justify-content:space-between;gap:12px;align-items:flex-end}.money{font-size:28px;font-weight:950}.bar{height:9px;background:#07131f;border-radius:99px;overflow:hidden;margin-top:12px}.bar i{display:block;height:100%;background:#51e5a5;border-radius:99px}
-.tabs{display:flex;gap:7px;overflow:auto;padding:4px 0 13px}.tab{white-space:nowrap;border:1px solid #294057;background:#0d1b2b;color:#acc0d2;padding:8px 11px;border-radius:999px}.tab.active{background:#ecfaf4;color:#071a12;font-weight:850}
-.grid{display:grid;gap:12px}.card{background:#0d1b2a;border:1px solid #20384e;border-radius:19px;overflow:hidden}.cardbody{padding:15px}.cardimg{width:100%;max-height:230px;object-fit:cover;display:block;background:#0a1521}.meta{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:9px}.tag{font-size:10px;font-weight:900;background:#15344a;color:#9fdcff;padding:5px 7px;border-radius:999px}.reward{font-weight:950;color:#58edac;font-size:18px}.card h3{margin:0 0 7px;font-size:17px}.card p{margin:0 0 12px;color:#9cb0c2;line-height:1.4;font-size:13px}.stats{font-size:11px;color:#8199ae;display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px}
-.btn{border:0;border-radius:12px;padding:11px 13px;font-weight:900}.primary{background:#50e3a4;color:#062117}.secondary{background:#12263a;color:#e6f1fc;border:1px solid #29435b}.danger{background:#3b1b25;color:#ffd7e2;border:1px solid #6c3042}.wide{width:100%}.row{display:flex;gap:8px}.row>*{flex:1}
-.panel{background:#0d1b2a;border:1px solid #20384e;border-radius:19px;padding:16px;margin-bottom:12px}label{display:block;font-size:12px;color:#9bb0c3;margin:12px 0 6px}.field{width:100%;border:1px solid #294159;background:#081521;color:#edf5ff;border-radius:12px;padding:11px 12px;outline:none}.field:focus{border-color:#50e3a4}textarea.field{min-height:92px;resize:vertical}
-.preview{width:100%;max-height:240px;object-fit:cover;border-radius:14px;margin-top:10px;display:none}.nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:min(620px,100%);display:grid;grid-template-columns:repeat(5,1fr);background:rgba(7,17,31,.98);border-top:1px solid #193248;padding:8px 6px max(8px,env(safe-area-inset-bottom));z-index:30}.nav button{border:0;background:transparent;color:#829aae;font-size:10px;padding:5px}.nav strong{display:block;font-size:18px}.nav .active{color:#50e3a4}.screen{display:none}.screen.active{display:block}
-.auth{padding:30px 17px}.authbox{background:#0d1b2a;border:1px solid #20384e;border-radius:22px;padding:18px}.switch{background:none;border:0;color:#63efb4;padding:10px 0}.hidden{display:none!important}
-.modal{position:fixed;inset:0;background:#000a;display:none;align-items:flex-end;z-index:50}.modal.open{display:flex}.sheet{max-height:90vh;overflow:auto;width:min(620px,100%);margin:auto;background:#0b1726;border:1px solid #29445e;border-radius:24px 24px 0 0;padding:18px}.close{float:right;border:0;background:#14283c;color:white;border-radius:10px;padding:7px 10px}
-.avatar{width:50px;height:50px;display:grid;place-items:center;border-radius:16px;background:#17364d;font-size:22px}.userline{display:flex;gap:12px;align-items:center}.empty{text-align:center;padding:28px 12px;color:#8299ae}.status{font-size:11px;font-weight:900;text-transform:uppercase}.submitted{color:#ffc978}.approved{color:#55e9aa}.rejected{color:#ff8fa9}.started{color:#8bcaff}
+*{box-sizing:border-box}html{background:#07111f}body{margin:0;background:#07111f;color:#edf5ff;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
+button,input,textarea,select{font:inherit}.app{max-width:620px;margin:auto;min-height:100vh;background:linear-gradient(180deg,#0b1727,#07111f 38%);padding-bottom:92px}
+header{position:sticky;top:0;z-index:20;padding:17px;background:rgba(7,17,31,.95);backdrop-filter:blur(12px);border-bottom:1px solid #173149}.toprow{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.brand{font-weight:950;letter-spacing:.4px;color:#fff;text-decoration:none}.brand b{color:#50e3a4}.brand.big{font-size:24px;margin-bottom:20px}.pill{font-size:10px;border:1px solid #2a4259;border-radius:999px;padding:6px 8px;color:#9fb5c8}
+main{padding:16px}.hero h1{font-size:28px;line-height:1.08;margin:5px 0 7px}.hero p{margin-top:0}.muted{color:#91a6b9}.small,small{font-size:12px;color:#91a6b9}
+.goal{background:linear-gradient(135deg,#12364b,#0b2537);border:1px solid #24506b;border-radius:20px;padding:17px;margin:14px 0}.goalrow{display:flex;justify-content:space-between;gap:12px;align-items:end}.goalright{text-align:right}.money{font-size:29px;font-weight:950;margin-top:4px}.bar{height:9px;background:#07131f;border-radius:99px;overflow:hidden;margin-top:12px}.bar i{display:block;height:100%;background:#50e3a4;border-radius:99px}.goaltext{font-size:12px;color:#9db1c3;margin-top:8px}
+.notice{padding:11px 12px;border:1px solid #5c4c2f;background:#2a2316;color:#f0d494;border-radius:13px;font-size:12px;line-height:1.45;margin:12px 0}.flash{padding:11px 12px;border-radius:13px;margin-bottom:12px;font-size:13px}.flash.ok{background:#123329;border:1px solid #28694f;color:#8ff2c5}.flash.err{background:#351b25;border:1px solid #6f3043;color:#ffb4c4}
+.section-title{display:flex;justify-content:space-between;align-items:center;margin:18px 0 10px}.section-title.spaced{margin-top:28px}.section-title h2{margin:0;font-size:18px}.section-title span{font-size:12px;color:#8fa5b8}
+.grid{display:grid;gap:12px}.card{background:#0d1b2a;border:1px solid #20384e;border-radius:19px;overflow:hidden}.cardimg{width:100%;max-height:240px;object-fit:cover;background:#091521;display:block}.cardbody{padding:15px}.meta{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:9px}.tag{font-size:10px;font-weight:900;background:#15344a;color:#9fdcff;padding:5px 7px;border-radius:999px}.reward{font-size:18px;font-weight:950;color:#58edac}.card h3{margin:0 0 7px;font-size:17px}.card p{font-size:13px;line-height:1.45;color:#9cb0c2}.instruction,.answer{font-size:12px;line-height:1.45;background:#081521;border:1px solid #1e354b;border-radius:12px;padding:10px;margin:10px 0;color:#bfd0df}.stats{font-size:11px;color:#819aae;display:flex;gap:12px;flex-wrap:wrap;margin:12px 0}
+.btn{border:0;border-radius:12px;padding:11px 13px;font-weight:900;cursor:pointer}.primary{background:#50e3a4;color:#062117}.secondary{background:#12263a;color:#e6f1fc;border:1px solid #29435b}.danger{background:#3b1b25;color:#ffd7e2;border:1px solid #6c3042}.wide{width:100%}.linkbtn{display:block;text-align:center;text-decoration:none;margin-top:12px}.row{display:grid;grid-template-columns:1fr 1fr;gap:9px}.row form{margin:0}
+.panel{background:#0d1b2a;border:1px solid #20384e;border-radius:19px;padding:16px}label{display:block;font-size:12px;color:#9bb0c3;margin:12px 0 6px}.field{width:100%;border:1px solid #294159;background:#081521;color:#edf5ff;border-radius:12px;padding:11px 12px;outline:none}.field:focus{border-color:#50e3a4}textarea.field{min-height:95px;resize:vertical}.preview,.proof{display:none;width:100%;max-height:240px;object-fit:cover;border-radius:13px;margin:10px 0}.proof{display:block}
+.nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:min(620px,100%);display:grid;grid-template-columns:repeat(5,1fr);background:rgba(7,17,31,.98);border-top:1px solid #193248;padding:8px 6px max(8px,env(safe-area-inset-bottom));z-index:30}.nav a{color:#829aae;text-decoration:none;text-align:center;font-size:10px;padding:5px}.nav strong{display:block;font-size:18px}.nav a.active{color:#50e3a4}
+.auth-wrap{min-height:100vh;display:grid;place-items:center;padding:20px}.auth-card{width:min(430px,100%);background:#0d1b2a;border:1px solid #20384e;border-radius:22px;padding:20px}.auth-card h1{margin-bottom:6px}.auth-card form .btn{margin-top:15px}.switch{display:block;color:#50e3a4;text-decoration:none;margin-top:14px;font-size:13px}
+.userline{display:flex;gap:12px;align-items:center}.avatar{width:52px;height:52px;border-radius:16px;background:#17364d;display:grid;place-items:center;font-size:23px}.panel hr{border:0;border-top:1px solid #20384e;margin:18px 0}.empty{text-align:center;padding:30px 12px;color:#839bae}.status{font-size:11px;font-weight:900;text-transform:uppercase}.started{color:#8bcaff}.submitted{color:#ffc978}.approved{color:#55e9aa}.rejected{color:#ff8fa9}
 @media(min-width:760px){body{padding:18px 0}.app{border:1px solid #173149;border-radius:28px;overflow:hidden;min-height:calc(100vh - 36px)}.nav{bottom:18px;border-radius:0 0 28px 28px}}
 </style>
 </head>
 <body>
-<div id="authView" class="auth">
-  <div style="max-width:440px;margin:auto">
-    <div class="brand" style="font-size:23px;margin-bottom:18px">BERN <b>NEXUS</b></div>
-    <div class="authbox">
-      <div id="loginBox">
-        <h2>Entrar</h2><p class="muted">Acesse suas missões ou publique pequenos trabalhos.</p>
-        <label>E-mail</label><input id="loginEmail" class="field" type="email">
-        <label>Senha</label><input id="loginPass" class="field" type="password">
-        <button class="btn primary wide" style="margin-top:14px" onclick="login()">Entrar</button>
-        <button class="switch" onclick="showRegister(true)">Criar minha conta</button>
-      </div>
-      <div id="registerBox" class="hidden">
-        <h2>Criar conta</h2>
-        <label>Nome</label><input id="regName" class="field">
-        <label>E-mail</label><input id="regEmail" class="field" type="email">
-        <label>Senha</label><input id="regPass" class="field" type="password" placeholder="mínimo 6 caracteres">
-        <label>Como você quer usar o Nexus?</label>
-        <select id="regRole" class="field"><option value="worker">Quero ganhar fazendo missões</option><option value="client">Quero publicar missões</option><option value="both">Quero fazer os dois</option></select>
-        <button class="btn primary wide" style="margin-top:14px" onclick="register()">Criar conta</button>
-        <button class="switch" onclick="showRegister(false)">Já tenho conta</button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<div id="appView" class="app hidden">
-<header><div class="toprow"><div class="brand">BERN <b>NEXUS</b></div><div id="rolePill" class="pill"></div></div></header>
-<main>
-<section id="home" class="screen active">
-  <div class="hero"><h1>Missões rápidas.<br>Dinheiro por trabalho concluído.</h1><p class="muted">Escolha uma tarefa, siga as instruções e envie sua resposta.</p></div>
-  <div class="goal">
-    <div class="goalrow"><div><div class="small muted">Ganhos aprovados hoje</div><div id="todayMoney" class="money">R$ 0,00</div></div><div style="text-align:right"><div class="small muted">Meta pessoal</div><b>R$ 50/dia</b></div></div>
-    <div class="bar"><i id="goalBar" style="width:0%"></i></div><div id="goalText" class="small muted" style="margin-top:8px"></div>
-  </div>
-  <div class="notice">R$ 50/dia é uma meta visual, não uma promessa de renda. Ela depende de haver missões disponíveis e de os trabalhos serem aprovados.</div>
-  <div class="tabs" id="tabs"><button class="tab active" data-cat="">Todas</button><button class="tab" data-cat="Pesquisa">🔎 Pesquisa</button><button class="tab" data-cat="Teste">🧪 Teste</button><button class="tab" data-cat="Opinião">💬 Opinião</button><button class="tab" data-cat="Levantamento">📋 Levantamento</button></div>
-  <div class="grid" id="missionList"></div>
-</section>
-
-<section id="mine" class="screen">
-  <div class="hero"><h1>Minhas missões</h1><p class="muted">Acompanhe tarefas iniciadas, enviadas e aprovadas.</p></div>
-  <div class="grid" id="mySubmissionList"></div>
-</section>
-
-<section id="create" class="screen">
-  <div class="hero"><h1>Publicar missão</h1><p class="muted">Crie uma pequena tarefa para pessoas reais realizarem.</p></div>
-  <div id="createDenied" class="notice hidden">Seu perfil foi criado apenas para executar missões. Crie outra conta como contratante ou perfil “os dois” para publicar.</div>
-  <div id="createPanel" class="panel">
-    <label>Título</label><input id="mTitle" class="field" placeholder="Ex.: Teste minha página e diga o que ficou confuso">
-    <label>Categoria</label><select id="mCategory" class="field"><option>Pesquisa</option><option>Teste</option><option>Opinião</option><option>Levantamento</option></select>
-    <label>Descrição curta</label><textarea id="mDesc" class="field" placeholder="Explique o objetivo da missão."></textarea>
-    <label>Instruções</label><textarea id="mInstructions" class="field" placeholder="Passo a passo do que a pessoa deve fazer."></textarea>
-    <div class="row"><div><label>Recompensa por pessoa</label><input id="mReward" class="field" type="number" min="2.50" step="0.50" value="2.50"></div><div><label>Vagas</label><input id="mSlots" class="field" type="number" min="1" max="500" value="10"></div></div>
-    <label>Imagem do card (opcional)</label><input id="mImage" class="field" type="file" accept="image/jpeg,image/png,image/webp" onchange="previewMissionImage(this)">
-    <img id="mPreview" class="preview">
-    <div id="budgetText" class="notice">Orçamento demonstrativo: R$ 25,00. Ainda não existe cobrança real nesta v0.2.</div>
-    <div class="notice">Não publique missões de curtidas, seguidores, avaliações pagas ou outras formas de engajamento artificial.</div>
-    <button class="btn primary wide" onclick="createMission()">Publicar missão</button>
-  </div>
-</section>
-
-<section id="client" class="screen">
-  <div class="hero"><h1>Painel do contratante</h1><p class="muted">Veja suas missões e aprove trabalhos enviados.</p></div>
-  <div id="clientDenied" class="notice hidden">Seu perfil não possui acesso de contratante.</div>
-  <div id="clientContent"><div class="grid" id="clientMissionList"></div><h2 style="margin-top:22px">Trabalhos recebidos</h2><div class="grid" id="clientSubmissionList"></div></div>
-</section>
-
-<section id="profile" class="screen">
-  <div class="hero"><h1>Perfil</h1></div>
-  <div class="panel"><div class="userline"><div class="avatar">👤</div><div><b id="profileName"></b><div id="profileEmail" class="muted small"></div></div></div>
-  <hr style="border:0;border-top:1px solid #21384e;margin:17px 0">
-  <div class="small muted">Saldo aprovado</div><div id="balanceMoney" class="money">R$ 0,00</div>
-  <button class="btn secondary wide" onclick="logout()">Sair</button></div>
-</section>
-</main>
-
-<nav class="nav">
-<button data-screen="home" class="active" onclick="go('home',this)"><strong>⌂</strong>Início</button>
-<button data-screen="mine" onclick="go('mine',this)"><strong>✓</strong>Minhas</button>
-<button data-screen="create" onclick="go('create',this)"><strong>＋</strong>Publicar</button>
-<button data-screen="client" onclick="go('client',this)"><strong>▣</strong>Contratante</button>
-<button data-screen="profile" onclick="go('profile',this)"><strong>●</strong>Perfil</button>
-</nav>
-</div>
-
-<div id="modal" class="modal" onclick="if(event.target===this)closeModal()"><div class="sheet"><button class="close" onclick="closeModal()">✕</button><div id="modalBody"></div></div></div>
-
+${body}
 <script>
-let ME=null, activeCategory="", missionImageData="", proofImageData="";
-const money=v=>new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(Number(v||0));
-const esc=s=>String(s??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));
-async function api(path,opts={}){
-  const r=await fetch(path,{headers:{"content-type":"application/json",...(opts.headers||{})},...opts});
-  let d={};try{d=await r.json()}catch{}
-  if(!r.ok){
-    if(d.error==="Erro interno" && path!=="/api/health"){
-      try{
-        const hr=await fetch("/api/health",{cache:"no-store"});
-        const hd=await hr.json();
-        if(!hd.ok) throw new Error((hd.message||"Falha no D1")+(hd.missing_tables?.length?" Faltando: "+hd.missing_tables.join(", "):""));
-      }catch(healthErr){
-        if(healthErr?.message && healthErr.message!=="Failed to fetch") throw healthErr;
-      }
+(function(){
+  const forms=document.querySelectorAll(".image-form");
+  forms.forEach(form=>{
+    const input=form.querySelector(".image-input");
+    const hidden=form.querySelector(".image-data");
+    const preview=form.querySelector(".preview");
+    if(input){
+      input.addEventListener("change",async()=>{
+        if(!input.files||!input.files[0]){hidden.value="";preview.style.display="none";return}
+        try{
+          const data=await compressImage(input.files[0]);
+          hidden.value=data;
+          preview.src=data;
+          preview.style.display="block";
+        }catch(e){
+          alert(e.message);
+          input.value="";
+          hidden.value="";
+          preview.style.display="none";
+        }
+      });
     }
-    throw new Error(d.error||"Erro na operação");
+  });
+
+  document.querySelectorAll(".reward-input,.slots-input").forEach(el=>{
+    el.addEventListener("input",()=>{
+      const form=el.closest("form");
+      const reward=Number(form.querySelector(".reward-input")?.value||0);
+      const slots=Number(form.querySelector(".slots-input")?.value||0);
+      const budget=form.querySelector(".budget");
+      if(budget) budget.textContent="Orçamento demonstrativo: "+new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(reward*slots)+". Ainda não existe cobrança real.";
+    });
+  });
+
+  async function compressImage(file){
+    if(file.size>8*1024*1024) throw new Error("Escolha uma imagem de até 8 MB.");
+    const bmp=await createImageBitmap(file);
+    const max=900;
+    let w=bmp.width,h=bmp.height;
+    if(Math.max(w,h)>max){
+      const k=max/Math.max(w,h);
+      w=Math.round(w*k);h=Math.round(h*k);
+    }
+    const c=document.createElement("canvas");
+    c.width=w;c.height=h;
+    c.getContext("2d").drawImage(bmp,0,0,w,h);
+    let q=.76,data="";
+    for(let i=0;i<8;i++){
+      data=c.toDataURL("image/jpeg",q);
+      if(data.length<=190000) break;
+      q-=.08;
+    }
+    if(data.length>200000) throw new Error("Não consegui reduzir a imagem. Escolha uma imagem menor.");
+    return data;
   }
-  return d;
-}
-async function boot(){
-  try{const d=await api("/api/me");ME=d.user;if(ME){showApp();await refreshAll()}else showAuth()}catch(e){alert(e.message);showAuth()}
-}
-function showAuth(){document.getElementById("authView").classList.remove("hidden");document.getElementById("appView").classList.add("hidden")}
-function showApp(){document.getElementById("authView").classList.add("hidden");document.getElementById("appView").classList.remove("hidden");document.getElementById("profileName").textContent=ME.name;document.getElementById("profileEmail").textContent=ME.email;document.getElementById("rolePill").textContent=ME.role==="worker"?"TRABALHADOR":ME.role==="client"?"CONTRATANTE":"TRABALHADOR + CONTRATANTE";updateRoleUI()}
-function showRegister(v){document.getElementById("loginBox").classList.toggle("hidden",v);document.getElementById("registerBox").classList.toggle("hidden",!v)}
-async function register(){try{await api("/api/register",{method:"POST",body:JSON.stringify({name:regName.value,email:regEmail.value,password:regPass.value,role:regRole.value})});ME=(await api("/api/me")).user;showApp();await refreshAll()}catch(e){alert(e.message)}}
-async function login(){try{await api("/api/login",{method:"POST",body:JSON.stringify({email:loginEmail.value,password:loginPass.value})});ME=(await api("/api/me")).user;showApp();await refreshAll()}catch(e){alert(e.message)}}
-async function logout(){await api("/api/logout",{method:"POST",body:"{}"});ME=null;showAuth()}
-function canWorker(){return ME&&["worker","both"].includes(ME.role)}function canClient(){return ME&&["client","both"].includes(ME.role)}
-function updateRoleUI(){createPanel.classList.toggle("hidden",!canClient());createDenied.classList.toggle("hidden",canClient());clientContent.classList.toggle("hidden",!canClient());clientDenied.classList.toggle("hidden",canClient())}
-function go(id,b){document.querySelectorAll(".screen").forEach(x=>x.classList.remove("active"));document.getElementById(id).classList.add("active");document.querySelectorAll(".nav button").forEach(x=>x.classList.remove("active"));(b||document.querySelector('[data-screen="'+id+'"]'))?.classList.add("active");window.scrollTo({top:0,behavior:"smooth"});if(id==="client")loadClient();if(id==="mine")loadMine();if(id==="home")loadMissions();if(id==="profile")loadWallet()}
-async function refreshAll(){await Promise.all([loadMissions(),loadMine(),loadWallet(),canClient()?loadClient():Promise.resolve()])}
-tabs.addEventListener("click",e=>{const b=e.target.closest("[data-cat]");if(!b)return;activeCategory=b.dataset.cat;document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));b.classList.add("active");loadMissions()})
-async function loadMissions(){if(!ME)return;try{const d=await api("/api/missions"+(activeCategory?"?category="+encodeURIComponent(activeCategory):""));missionList.innerHTML=d.missions.length?d.missions.map(missionCard).join(""):'<div class="empty">Nenhuma missão disponível agora.</div>'}catch(e){missionList.innerHTML='<div class="notice">'+esc(e.message)+'</div>'}}
-function missionCard(m){const left=Math.max(0,Number(m.slots)-Number(m.occupied||0));return '<article class="card">'+(m.image_data?'<img class="cardimg" src="'+m.image_data+'">':'')+'<div class="cardbody"><div class="meta"><span class="tag">'+esc(m.category).toUpperCase()+'</span><span class="reward">'+money(m.reward)+'</span></div><h3>'+esc(m.title)+'</h3><p>'+esc(m.description)+'</p><div class="stats"><span>👤 '+esc(m.client_name||"Nexus")+'</span><span>🎯 '+left+' vagas</span></div><button class="btn primary wide" onclick="openMission('+m.id+')">'+(canWorker()?"Fazer missão":"Ver missão")+'</button></div></article>'}
-async function openMission(id){try{const d=await api("/api/missions");const m=d.missions.find(x=>Number(x.id)===Number(id));if(!m)return;modalBody.innerHTML=(m.image_data?'<img class="cardimg" style="border-radius:14px" src="'+m.image_data+'">':'')+'<span class="tag">'+esc(m.category).toUpperCase()+'</span><h2>'+esc(m.title)+'</h2><div class="reward">'+money(m.reward)+'</div><p class="muted">'+esc(m.description)+'</p><h3>Instruções</h3><p class="muted">'+esc(m.instructions)+'</p>'+(canWorker()?'<button class="btn primary wide" onclick="startMission('+m.id+')">Aceitar missão</button>':'<div class="notice">Seu perfil não está habilitado para executar missões.</div>');modal.classList.add("open")}catch(e){alert(e.message)}}
-function closeModal(){modal.classList.remove("open")}
-async function startMission(id){try{const d=await api("/api/missions/"+id+"/start",{method:"POST",body:"{}"});closeModal();await loadMine();openSubmission(d.submission_id)}catch(e){alert(e.message)}}
-async function loadMine(){if(!ME)return;try{const d=await api("/api/my-submissions");mySubmissionList.innerHTML=d.submissions.length?d.submissions.map(s=>'<div class="card">'+(s.image_data?'<img class="cardimg" src="'+s.image_data+'">':'')+'<div class="cardbody"><div class="meta"><span class="status '+s.status+'">'+statusText(s.status)+'</span><span class="reward">'+money(s.reward)+'</span></div><h3>'+esc(s.title)+'</h3><p>'+esc(s.description)+'</p><button class="btn '+(s.status==="started"?"primary":"secondary")+' wide" onclick="openSubmission('+s.id+')">'+(s.status==="started"?"Continuar":"Ver envio")+'</button></div></div>').join(""):'<div class="empty">Você ainda não iniciou nenhuma missão.</div>'}catch(e){mySubmissionList.innerHTML='<div class="notice">'+esc(e.message)+'</div>'}}
-function statusText(s){return {started:"Em andamento",submitted:"Em análise",approved:"Aprovada",rejected:"Rejeitada"}[s]||s}
-async function openSubmission(id){const d=await api("/api/my-submissions");const s=d.submissions.find(x=>Number(x.id)===Number(id));if(!s)return;proofImageData="";modalBody.innerHTML='<span class="status '+s.status+'">'+statusText(s.status)+'</span><h2>'+esc(s.title)+'</h2><div class="reward">'+money(s.reward)+'</div>'+(s.status==="started"?'<label>Sua resposta / trabalho realizado</label><textarea id="answerField" class="field" placeholder="Descreva o resultado..."></textarea><label>Imagem de comprovante (opcional)</label><input id="proofFile" class="field" type="file" accept="image/jpeg,image/png,image/webp" onchange="setProof(this)"><img id="proofPreview" class="preview"><button class="btn primary wide" style="margin-top:14px" onclick="submitWork('+s.id+')">Enviar para aprovação</button>':'<p class="muted">'+esc(s.answer||"")+'</p>'+(s.proof_image?'<img class="cardimg" style="border-radius:14px" src="'+s.proof_image+'">':''));modal.classList.add("open")}
-async function setProof(inp){if(!inp.files?.[0])return;try{proofImageData=await compressImage(inp.files[0]);proofPreview.src=proofImageData;proofPreview.style.display="block"}catch(e){alert(e.message);inp.value=""}}
-async function submitWork(id){try{await api("/api/submissions/"+id+"/submit",{method:"POST",body:JSON.stringify({answer:answerField.value,proof_image:proofImageData})});closeModal();await Promise.all([loadMine(),loadWallet()]);alert("Trabalho enviado para aprovação.")}catch(e){alert(e.message)}}
-mReward.addEventListener("input",budget);mSlots.addEventListener("input",budget);function budget(){const v=Number(mReward.value||0)*Number(mSlots.value||0);budgetText.textContent="Orçamento demonstrativo: "+money(v)+". Ainda não existe cobrança real nesta v0.2."}
-async function previewMissionImage(inp){if(!inp.files?.[0])return;try{missionImageData=await compressImage(inp.files[0]);mPreview.src=missionImageData;mPreview.style.display="block"}catch(e){alert(e.message);inp.value="";missionImageData=""}}
-async function compressImage(file){
-  if(file.size>8*1024*1024)throw new Error("Escolha uma imagem de até 8 MB.");
-  const bmp=await createImageBitmap(file);const max=900;let w=bmp.width,h=bmp.height;if(Math.max(w,h)>max){const k=max/Math.max(w,h);w=Math.round(w*k);h=Math.round(h*k)}
-  const c=document.createElement("canvas");c.width=w;c.height=h;const x=c.getContext("2d");x.drawImage(bmp,0,0,w,h);
-  let q=.76,data="";for(let i=0;i<7;i++){data=c.toDataURL("image/jpeg",q);if(data.length<=190000)break;q-=.09}
-  if(data.length>200000)throw new Error("Não consegui comprimir a imagem o suficiente. Escolha uma imagem menor.");
-  return data;
-}
-async function createMission(){try{if(Number(mReward.value)<2.5)throw new Error("O valor mínimo por missão é R$ 2,50.");await api("/api/missions",{method:"POST",body:JSON.stringify({title:mTitle.value,category:mCategory.value,description:mDesc.value,instructions:mInstructions.value,reward:Number(mReward.value),slots:Number(mSlots.value),image_data:missionImageData})});mTitle.value=mDesc.value=mInstructions.value="";mReward.value="2.50";mSlots.value="10";mImage.value="";mPreview.style.display="none";missionImageData="";budget();alert("Missão publicada.");go("client")}catch(e){alert(e.message)}}
-async function loadClient(){if(!ME||!canClient())return;try{const [a,b]=await Promise.all([api("/api/client/missions"),api("/api/client/submissions")]);clientMissionList.innerHTML=a.missions.length?a.missions.map(m=>'<div class="card">'+(m.image_data?'<img class="cardimg" src="'+m.image_data+'">':'')+'<div class="cardbody"><div class="meta"><span class="tag">'+esc(m.category).toUpperCase()+'</span><span class="reward">'+money(m.reward)+'</span></div><h3>'+esc(m.title)+'</h3><div class="stats"><span>'+m.submissions_count+' envios</span><span>'+m.approved_count+' aprovados</span><span>'+m.status+'</span></div><button class="btn secondary wide" onclick="toggleMission('+m.id+',\\''+(m.status==="open"?"closed":"open")+'\\')">'+(m.status==="open"?"Fechar missão":"Reabrir missão")+'</button></div></div>').join(""):'<div class="empty">Você ainda não publicou nenhuma missão.</div>';clientSubmissionList.innerHTML=b.submissions.length?b.submissions.map(clientSubmissionCard).join(""):'<div class="empty">Nenhum trabalho recebido.</div>'}catch(e){clientContent.innerHTML='<div class="notice">'+esc(e.message)+'</div>'}}
-function clientSubmissionCard(s){return '<div class="card"><div class="cardbody"><div class="meta"><span class="status '+s.status+'">'+statusText(s.status)+'</span><span class="reward">'+money(s.reward)+'</span></div><h3>'+esc(s.title)+'</h3><p><b>'+esc(s.worker_name)+'</b><br>'+esc(s.answer||"Ainda não enviou resposta.")+'</p>'+(s.proof_image?'<img class="cardimg" style="border-radius:12px;margin-bottom:12px" src="'+s.proof_image+'">':'')+(s.status==="submitted"?'<div class="row"><button class="btn danger" onclick="review('+s.id+',\\'reject\\')">Rejeitar</button><button class="btn primary" onclick="review('+s.id+',\\'approve\\')">Aprovar</button></div>':'')+'</div></div>'}
-async function review(id,action){if(!confirm(action==="approve"?"Aprovar e creditar a recompensa ao trabalhador?":"Rejeitar este trabalho?"))return;try{await api("/api/submissions/"+id+"/review",{method:"POST",body:JSON.stringify({action})});await loadClient()}catch(e){alert(e.message)}}
-async function toggleMission(id,status){try{await api("/api/client/mission-status",{method:"POST",body:JSON.stringify({id,status})});await loadClient();await loadMissions()}catch(e){alert(e.message)}}
-async function loadWallet(){if(!ME)return;try{const d=await api("/api/wallet");todayMoney.textContent=money(d.earned_today);balanceMoney.textContent=money(d.balance);const p=Math.min(100,(Number(d.earned_today)/Number(d.goal))*100);goalBar.style.width=p+"%";goalText.textContent=d.earned_today>=d.goal?"Meta atingida hoje.":money(Math.max(0,d.goal-d.earned_today))+" para chegar à meta visual de hoje."}catch(e){}}
-boot();
+})();
 </script>
-</body></html>`;
+</body></html>`, {
+    status,
+    headers: {
+      "content-type":"text/html; charset=UTF-8",
+      "cache-control":"no-store",
+      "x-content-type-options":"nosniff",
+      "referrer-policy":"same-origin",
+      "content-security-policy":"default-src 'self'; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+    }
+  });
+}

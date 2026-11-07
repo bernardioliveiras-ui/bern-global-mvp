@@ -1,100 +1,79 @@
-# BERN NEXUS v0.2.1 — Worker + D1
+# BERN NEXUS v0.3 — Multiusuário sem API no frontend
 
-MVP online multiusuário.
+Esta versão remove a arquitetura `/api/*`.
 
-## O que funciona
+## Como funciona
 
-- Cadastro e login.
-- Perfis: trabalhador, contratante ou os dois.
-- Feed de missões.
-- Valor mínimo de R$ 2,50 por missão (validado no navegador, API e D1).
-- Meta visual de R$ 50/dia (não é garantia de renda).
-- Contratante publica missão.
-- 1 imagem por missão, comprimida no navegador e salva no D1 (sem R2).
-- Trabalhador aceita missão.
-- Envia resposta e imagem de comprovante opcional.
-- Contratante aprova/rejeita.
-- Aprovação credita o saldo interno do trabalhador.
-- Carteira/ledger.
-- Contratante pode fechar/reabrir missão.
+- O navegador envia formulários HTML normais.
+- O Worker recebe os POSTs.
+- O Worker lê/grava diretamente no D1 via `env.DB`.
+- Login usa cookie de sessão HttpOnly.
+- Não há `fetch()` para API no frontend.
+- O próprio Worker cria as tabelas com `CREATE TABLE IF NOT EXISTS` no primeiro uso.
+- Não depende de migrations no comando de deploy.
 
-## IMPORTANTE
+## Perfis
 
-Ainda NÃO existe dinheiro real:
-- sem cobrança do contratante;
-- sem Pix;
-- sem saque real;
-- sem KYC/CPF;
-- sem recuperação de senha;
-- sem moderação administrativa.
+- Trabalhador: executa missões.
+- Contratante: publica e aprova missões.
+- Os dois: faz as duas coisas.
 
-Não publique a plataforma como promessa de "R$ 50 por dia". O R$ 50 é uma meta visual que depende da oferta de missões e da aprovação.
+## Funcionalidades
 
-## 1. Crie o banco D1
+- Cadastro e login multiusuário.
+- Missões online compartilhadas entre usuários.
+- Valor mínimo de R$ 2,50.
+- Meta visual de R$ 50/dia.
+- 1 imagem por missão.
+- Imagem opcional como comprovante.
+- Aprovar/rejeitar trabalho.
+- Saldo interno do trabalhador.
+- Fechar/reabrir missão.
+- Sem R2.
+- Sem Pix real nesta versão.
 
-No terminal autenticado na sua conta Cloudflare:
+## IMPORTANTE — não substitua seu wrangler.jsonc
 
-    npm install
-    npx wrangler d1 create bern-nexus-db
+Seu Worker já possui o binding:
 
-O comando mostrará um `database_id`.
+    DB -> bern-global-db
 
-## 2. Cole o database_id
+Mantenha o `wrangler.jsonc` que já está funcionando na sua conta.
 
-Abra `wrangler.jsonc` e troque:
+Substitua apenas:
 
-    COLE_AQUI_O_DATABASE_ID_DO_D1
+- `src.js`
+- `package.json`
+- opcionalmente `README.md`
 
-pelo UUID retornado pela Cloudflare.
-
-## 3. Banco + deploy
+O deploy agora é somente:
 
     npm run deploy
 
-O comando aplica a migration do D1 e depois publica o Worker.
+que executa:
 
-## Git + Cloudflare Builds
+    wrangler deploy
 
-Deixe os arquivos na raiz do repositório e use:
+Não há migration no deploy.
 
-- Build command: vazio
-- Deploy command: npm run deploy
+## Teste
 
-ANTES do primeiro deploy via Git, o banco D1 precisa existir e o `database_id` correto precisa estar commitado no `wrangler.jsonc`.
+1. Faça deploy.
+2. Abra o Worker.
+3. Crie conta como contratante.
+4. Publique uma missão.
+5. Abra aba anônima.
+6. Crie conta como trabalhador.
+7. Aceite e envie a missão.
+8. Volte ao contratante e aprove.
+9. O saldo do trabalhador será creditado.
 
-## Teste recomendado
+## Sobre as imagens
 
-1. Crie uma conta "contratante".
-2. Publique uma missão de R$ 2,50 com uma imagem.
-3. Abra uma janela anônima/incógnita.
-4. Crie outra conta "trabalhador".
-5. Aceite a missão e envie a resposta.
-6. Volte à conta contratante e aprove.
-7. Na conta do trabalhador, abra Perfil e veja o saldo.
+As imagens são comprimidas no navegador para cerca de 200 KB e salvas como texto no D1.
+É proposital para evitar R2 no MVP.
 
-## Imagens sem R2
+## Observação
 
-A imagem é redimensionada para no máximo 900 px e comprimida como JPEG no navegador.
-O app limita a string da imagem a aproximadamente 200 KB.
-Isso é adequado para MVP e evita R2, mas não é a arquitetura recomendada para grande escala.
-
-
-## Diagnóstico v0.2.1
-
-Abra no navegador:
-
-    https://SEU-WORKER.workers.dev/api/health
-
-Resposta saudável esperada:
-
-    {
-      "ok": true,
-      "db_binding": true,
-      "missing_tables": []
-    }
-
-Se aparecer `missing_tables`, o D1 está conectado mas a migration não foi aplicada.
-Se aparecer `D1 não configurado`, confira o binding `DB` no `wrangler.jsonc` e no Worker publicado.
-
-A v0.2.1 também troca `INSERT ... RETURNING` pelo `meta.last_row_id`
-retornado pelo D1, deixando o cadastro e a criação de missões mais robustos.
+Essa arquitetura ainda usa o D1, porque multiusuário precisa de um armazenamento central.
+O que foi removido foi a camada de API JSON no frontend.
