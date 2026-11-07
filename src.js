@@ -5,6 +5,28 @@ const PLATFORM_FEE_RATE = 0.20;
 const PAGE_SIZE = 20;
 const MAX_IMAGE_CHARS = 200000;
 const SESSION_DAYS = 30;
+
+const PUBLIC_CONTENT_DEFAULTS = {
+  lp_hero_badge: "MISSÕES REAIS · RECOMPENSA CLARA",
+  lp_hero_title: "Seu tempo pode virar",
+  lp_hero_highlight: "renda extra.",
+  lp_hero_subtitle: "Entre no Bern Nexus, escolha uma missão disponível e veja exatamente quanto você pode receber antes de começar.",
+  lp_worker_cta: "Começar missões agora",
+  lp_business_title: "Coloque pessoas reais para resolver pequenas tarefas.",
+  lp_business_subtitle: "Pesquisa, teste, opinião ou levantamento: publique o que precisa, escolha quantas pessoas quer e acompanhe cada entrega no painel.",
+  lp_business_cta: "Publicar uma tarefa",
+  lp_final_title: "Escolha de que lado você quer começar.",
+  lp_final_subtitle: "Faça pequenas missões para buscar renda extra ou publique tarefas para colocar pessoas reais ajudando seu negócio.",
+  worker_hero_kicker: "Painel do trabalhador",
+  worker_hero_title: "Ganhe fazendo pequenas missões.",
+  worker_hero_subtitle: "Encontre tarefas rapidamente, filtre melhor e foque nas missões que mais valem a pena para você.",
+  client_hero_title: "Seu painel de missões.",
+  client_hero_subtitle: "Publique tarefas e acompanhe os trabalhos recebidos.",
+  create_hero_title: "Publicar missão",
+  create_hero_subtitle: "Defina a recompensa, o prazo e quantas pessoas você precisa.",
+  profile_hero_title: "Perfil e carteira",
+  profile_hero_subtitle: "Acompanhe sua reputação, seus saldos e seu histórico."
+};
 const BRAND_LOGO_DATA = "data:image/webp;base64,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";
 const FAVICON_DATA = "data:image/webp;base64,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";
 
@@ -20,8 +42,8 @@ export default {
           <div class="auth-wrap">
             <div class="auth-card">
               <div class="brand big auth-brand"><img class="brand-logo-img" src="${BRAND_LOGO_DATA}" alt=""><span>BERN <b>NEXUS</b></span></div>
-              <h1>Falta conectar o D1</h1>
-              <p class="muted">Este Worker precisa do binding <b>DB</b> apontando para seu banco D1.</p>
+              <h1>Serviço temporariamente indisponível</h1>
+              <p class="muted">Não foi possível carregar a plataforma agora. Tente novamente em alguns instantes.</p>
             </div>
           </div>`, 503);
       }
@@ -70,7 +92,7 @@ export default {
       }
 
       if (!user) {
-        if (request.method === "GET" && path === "/") return renderLanding();
+        if (request.method === "GET" && path === "/") return await renderLanding(env.DB);
         return redirect("/login", request);
       }
 
@@ -140,6 +162,10 @@ export default {
         return await handleAdminAsaasReconcile(request, env, user);
       }
 
+      if (request.method === "POST" && path === "/admin/content/save") {
+        return await handleAdminContentSave(request, env.DB, user);
+      }
+
       if (request.method === "GET" && path === "/") {
         return await renderDashboard(request, env, user, url);
       }
@@ -151,8 +177,8 @@ export default {
         <div class="auth-wrap">
           <div class="auth-card">
             <div class="brand big auth-brand"><img class="brand-logo-img" src="${BRAND_LOGO_DATA}" alt=""><span>BERN <b>NEXUS</b></span></div>
-            <h1>Algo deu errado</h1>
-            <p class="muted">${esc(String(e?.message || e))}</p>
+            <h1>Não foi possível concluir</h1>
+            <p class="muted">Ocorreu uma falha inesperada. Tente novamente. Se continuar acontecendo, entre em contato com o suporte.</p>
             <a class="btn primary wide linkbtn" href="/">Voltar</a>
           </div>
         </div>`, 500);
@@ -290,6 +316,12 @@ async function ensureSchema(db) {
           admin_note TEXT,
           created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )`,
+        `CREATE TABLE IF NOT EXISTS nexus_public_content (
+          content_key TEXT PRIMARY KEY,
+          content_value TEXT NOT NULL,
+          updated_by INTEGER,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )`,
         `CREATE INDEX IF NOT EXISTS idx_nexus_missions_status ON nexus_missions(status, created_at)`,
         `CREATE INDEX IF NOT EXISTS idx_nexus_submissions_worker ON nexus_submissions(worker_id, created_at)`,
         `CREATE INDEX IF NOT EXISTS idx_nexus_submissions_mission ON nexus_submissions(mission_id, status)`,
@@ -371,7 +403,7 @@ function asaasBase(env) {
 }
 
 async function asaasRequest(env, path, options={}) {
-  if(!asaasConfigured(env)) throw new Error("Integração Asaas ainda não configurada.");
+  if(!asaasConfigured(env)) throw new Error("Serviço de pagamento temporariamente indisponível.");
   const headers={
     "accept":"application/json",
     "access_token":String(env.ASAAS_API_KEY),
@@ -1070,6 +1102,67 @@ function queryUrl(opts, changes={}) {
   return "/?"+p.toString();
 }
 
+
+async function getPublicContent(db) {
+  const copy={...PUBLIC_CONTENT_DEFAULTS};
+  const rows=await db.prepare("SELECT content_key,content_value FROM nexus_public_content").all();
+  for(const row of (rows.results||[])) {
+    const key=String(row.content_key||"");
+    if(Object.prototype.hasOwnProperty.call(copy,key)) {
+      copy[key]=String(row.content_value||"").trim() || PUBLIC_CONTENT_DEFAULTS[key];
+    }
+  }
+  return copy;
+}
+
+function publicContentFields() {
+  return [
+    ["lp_hero_badge","LP · selo do topo",120],
+    ["lp_hero_title","LP · título principal",120],
+    ["lp_hero_highlight","LP · destaque dourado",80],
+    ["lp_hero_subtitle","LP · subtítulo principal",320],
+    ["lp_worker_cta","LP · CTA trabalhador",80],
+    ["lp_business_title","LP · título para negócios",180],
+    ["lp_business_subtitle","LP · texto para negócios",360],
+    ["lp_business_cta","LP · CTA contratante",80],
+    ["lp_final_title","LP · título final",180],
+    ["lp_final_subtitle","LP · texto final",320],
+    ["worker_hero_kicker","Trabalhador · etiqueta",80],
+    ["worker_hero_title","Trabalhador · título",140],
+    ["worker_hero_subtitle","Trabalhador · subtítulo",280],
+    ["client_hero_title","Contratante · título",140],
+    ["client_hero_subtitle","Contratante · subtítulo",280],
+    ["create_hero_title","Publicar missão · título",120],
+    ["create_hero_subtitle","Publicar missão · subtítulo",280],
+    ["profile_hero_title","Perfil · título",120],
+    ["profile_hero_subtitle","Perfil · subtítulo",280]
+  ];
+}
+
+async function handleAdminContentSave(request, db, user) {
+  if(!user?.is_admin) return redirect("/?view=profile&err="+enc("Acesso não autorizado."),request);
+  const f=await request.formData();
+  const statements=[];
+  for(const [key,,max] of publicContentFields()) {
+    const value=clean(f.get(key),max);
+    if(value) {
+      statements.push(db.prepare(`
+        INSERT INTO nexus_public_content(content_key,content_value,updated_by,updated_at)
+        VALUES(?,?,?,CURRENT_TIMESTAMP)
+        ON CONFLICT(content_key) DO UPDATE SET
+          content_value=excluded.content_value,
+          updated_by=excluded.updated_by,
+          updated_at=CURRENT_TIMESTAMP
+      `).bind(key,value,user.id));
+    } else {
+      statements.push(db.prepare("DELETE FROM nexus_public_content WHERE content_key=?").bind(key));
+    }
+  }
+  if(statements.length) await db.batch(statements);
+  await auditSecurity(db,request,user.id,"admin_public_content_save","public_copy");
+  return redirect("/?view=admin&msg="+enc("Textos públicos atualizados."),request);
+}
+
 async function sha256Hex(value) {
   const data = new TextEncoder().encode(String(value || ""));
   const digest = await crypto.subtle.digest("SHA-256", data);
@@ -1252,7 +1345,7 @@ async function handleCreateMission(request, db, user) {
     const already=await db.prepare("SELECT id FROM nexus_missions WHERE mission_ref=? LIMIT 1").bind(missionRef).first();
     if(already) return redirect("/?view=client&msg="+enc("Essa publicação já tinha sido processada. Nenhum saldo foi reservado novamente."),request);
     const review=await db.prepare("SELECT id FROM nexus_pix_deposits WHERE user_id=? AND status='review_required' LIMIT 1").bind(user.id).first();
-    if(review) return redirect("/?view=create&err="+enc("Sua conta está em revisão financeira por causa de um estorno parcial ou contestação. Resolva isso com o administrador antes de publicar novas missões."),request);
+    if(review) return redirect("/?view=create&err="+enc("Sua carteira está temporariamente em análise. Entre em contato com o suporte antes de publicar novas missões."),request);
     const w=await db.prepare("SELECT available FROM nexus_client_wallet WHERE user_id=?").bind(user.id).first();
     return redirect("/?view=create&err="+enc(`Saldo insuficiente. Custo final: ${brl(total)}. Saldo disponível: ${brl(w?.available||0)}.`),request);
   }
@@ -1676,7 +1769,7 @@ async function handleAdminUserAction(request, env, user, targetId, action) {
       `).bind(targetId,amount,ref,"Ajuste manual de saldo pelo administrador")
     ]);
     await auditSecurity(db,request,user.id,"admin_credit",`${targetId}:${amount}`);
-    return redirect("/?view=admin&msg="+enc(`${brl(amount)} adicionados ao saldo interno de ${target.name}.`),request);
+    return redirect("/?view=admin&msg="+enc(`${brl(amount)} adicionados ao saldo de ${target.name}.`),request);
   }
 
   return redirect("/?view=admin&err="+enc("Ação inválida."),request);
@@ -1703,6 +1796,7 @@ async function renderDashboard(request, env, user, url) {
   const msg=url.searchParams.get("msg")||"";
   const err=url.searchParams.get("err")||"";
   const reputation=await getReputation(db,user);
+  const publicCopy=await getPublicContent(db);
   const financeConfig={
     asaasReady:asaasConfigured(env),
     webhookReady:asaasWebhookConfigured(env),
@@ -1715,16 +1809,16 @@ async function renderDashboard(request, env, user, url) {
   if(view==="home") {
     if(user.role==="client") {
       const [data,wallet]=await Promise.all([getClientData(db,user.id),getClientWallet(db,user.id)]);
-      content=renderClientHome(user,data.missions,data.subs,wallet,financeConfig);
+      content=renderClientHome(user,data.missions,data.subs,wallet,financeConfig,publicCopy);
     } else {
       const [feed,wallet]=await Promise.all([getFeedData(db,user,url),getWorkerWallet(db,user.id)]);
-      content=renderHome(user,feed,wallet);
+      content=renderHome(user,feed,wallet,publicCopy);
     }
   } else if(view==="mine") {
     const [mine,wallet]=await Promise.all([getMySubmissions(db,user.id,url),getWorkerWallet(db,user.id)]);
     content=renderMine(user,mine,wallet);
   } else if(view==="create") {
-    content=renderCreate(user,await getClientWallet(db,user.id),financeConfig);
+    content=renderCreate(user,await getClientWallet(db,user.id),financeConfig,publicCopy);
   } else if(view==="client") {
     const [data,wallet]=await Promise.all([getClientData(db,user.id),getClientWallet(db,user.id)]);
     content=renderClient(user,data.missions,data.subs,wallet);
@@ -1737,9 +1831,9 @@ async function renderDashboard(request, env, user, url) {
       canClient(user)?getUserPixDeposits(db,user.id):Promise.resolve([]),
       canClient(user)&&pixId?getPixDepositById(db,user.id,pixId):Promise.resolve(null)
     ]);
-    content=renderProfile(user,workerWallet,clientWallet,reputation,withdrawals,deposits,pixDeposit,financeConfig);
+    content=renderProfile(user,workerWallet,clientWallet,reputation,withdrawals,deposits,pixDeposit,financeConfig,publicCopy);
   } else if(view==="admin") {
-    content=renderAdmin(user,await getAdminData(db),financeConfig);
+    content=renderAdmin(user,await getAdminData(db),financeConfig,publicCopy);
   }
 
   const body=`
@@ -1762,16 +1856,16 @@ async function renderDashboard(request, env, user, url) {
   return page("BERN NEXUS",body);
 }
 
-function renderHome(user, feed, wallet) {
+function renderHome(user, feed, wallet, copy=PUBLIC_CONTENT_DEFAULTS) {
   const o=feed.opts;
   const progress=Math.min(100,Math.max(0,wallet.today/DAILY_GOAL*100));
   const remaining=Math.max(0,DAILY_GOAL-wallet.today);
   return `
     <section class="home-hero-shell">
       <div class="home-hero-copy">
-        <span class="hero-kicker">Painel do trabalhador</span>
-        <h1>Ganhe fazendo<br>pequenas missões.</h1>
-        <p class="muted">Encontre tarefas rapidamente, filtre melhor e foque nas missões que mais valem a pena para você.</p>
+        <span class="hero-kicker">${esc(copy.worker_hero_kicker)}</span>
+        <h1>${esc(copy.worker_hero_title)}</h1>
+        <p class="muted">${esc(copy.worker_hero_subtitle)}</p>
 
         <div class="hero-mini-stats">
           <div class="hero-mini-card">
@@ -1879,12 +1973,12 @@ function renderHome(user, feed, wallet) {
   `;
 }
 
-function renderClientHome(user, missions, subs, wallet, financeConfig={}) {
+function renderClientHome(user, missions, subs, wallet, financeConfig={}, copy=PUBLIC_CONTENT_DEFAULTS) {
   const openCount=missions.filter(m=>m.status==="open").length;
   const waiting=subs.filter(s=>s.status==="submitted").length;
   const approved=subs.filter(s=>s.status==="approved").length;
   return `
-    <section class="hero"><h1>Seu painel de missões.</h1><p class="muted">Publique tarefas e acompanhe os trabalhos recebidos.</p></section>
+    <section class="hero"><h1>${esc(copy.client_hero_title)}</h1><p class="muted">${esc(copy.client_hero_subtitle)}</p></section>
 
     <div class="metric-grid">
       ${metric("Saldo disponível",brl(wallet.available))}
@@ -1898,7 +1992,7 @@ function renderClientHome(user, missions, subs, wallet, financeConfig={}) {
       <a class="btn secondary wide linkbtn nomargin" href="/?view=profile">${financeConfig.asaasReady?"⚡ Adicionar saldo via PIX":"Carteira"}</a>
     </div>
 
-    ${financeConfig.asaasReady?`<div class="notice finance-note">Saldo real: gere uma cobrança PIX no Perfil. O crédito só entra após confirmação do Asaas.</div>`:""}
+    ${financeConfig.asaasReady?`<div class="notice finance-note">Adicione saldo via PIX pela sua carteira. O crédito é liberado após a confirmação do pagamento.</div>`:""}
 
     <div class="section-title"><h2>Suas missões recentes</h2><span>${missions.length}</span></div>
     <div class="grid">
@@ -1972,11 +2066,11 @@ function renderMine(user, mine, wallet) {
     </div>`;
 }
 
-function renderCreate(user, wallet, financeConfig={}) {
+function renderCreate(user, wallet, financeConfig={}, copy=PUBLIC_CONTENT_DEFAULTS) {
   if(!canClient(user)) return denied("Seu perfil foi criado apenas para realizar missões.");
   const defaultDeadline=datePlusDays(7);
   return `
-    <section class="hero"><h1>Publicar missão</h1><p class="muted">Defina a recompensa líquida do trabalhador. Você verá o custo final já com a taxa Nexus.</p></section>
+    <section class="hero"><h1>${esc(copy.create_hero_title)}</h1><p class="muted">${esc(copy.create_hero_subtitle)}</p></section>
 
     <div class="metric-grid wallet-mini">
       ${metric("Saldo disponível",brl(wallet.available))}
@@ -1984,7 +2078,7 @@ function renderCreate(user, wallet, financeConfig={}) {
       ${metric("Gasto aprovado",brl(wallet.spent))}
     </div>
 
-    ${wallet.available<MIN_REWARD?`<div class="notice">Seu saldo disponível está baixo. ${financeConfig.asaasReady?`Abra <a href="/?view=profile">Perfil e carteira</a> para adicionar saldo via PIX.`:"A integração PIX ainda não está configurada."}</div>`:""}
+    ${wallet.available<MIN_REWARD?`<div class="notice">Seu saldo disponível está baixo. ${financeConfig.asaasReady?`Abra <a href="/?view=profile">Perfil e carteira</a> para adicionar saldo via PIX.`:"A recarga via PIX está temporariamente indisponível."}</div>`:""}
 
     <form class="panel image-form" method="post" action="/missions/create">
       <input type="hidden" name="form_token" value="${randomHex(16)}">
@@ -2052,10 +2146,10 @@ function maskPixKey(value) {
   return s.slice(0,3)+"••••"+s.slice(-3);
 }
 
-function renderProfile(user, workerWallet, clientWallet, reputation, withdrawals=[], deposits=[], pixDeposit=null, financeConfig={}) {
+function renderProfile(user, workerWallet, clientWallet, reputation, withdrawals=[], deposits=[], pixDeposit=null, financeConfig={}, copy=PUBLIC_CONTENT_DEFAULTS) {
   const initials=String(user.name||"U").split(/\s+/).slice(0,2).map(x=>x[0]||"").join("").toUpperCase();
   return `
-    <section class="hero"><h1>Perfil e carteira</h1><p class="muted">Acompanhe reputação, saldo, PIX e histórico financeiro.</p></section>
+    <section class="hero"><h1>${esc(copy.profile_hero_title)}</h1><p class="muted">${esc(copy.profile_hero_subtitle)}</p></section>
 
     <div class="profile-head panel">
       <div class="userline"><div class="avatar initials">${esc(initials)}</div><div>
@@ -2076,7 +2170,7 @@ function renderProfile(user, workerWallet, clientWallet, reputation, withdrawals
       <div class="finance-grid">
         <form class="panel finance-panel" method="post" action="/wallet/withdraw/request">
           <div class="finance-panel-head"><div><span class="tag">SAQUE PIX</span><h3>Solicitar saque</h3></div></div>
-          <p class="muted small">O valor é reservado imediatamente e passa por conferência do administrador antes do pagamento.</p>
+          <p class="muted small">O valor é reservado imediatamente e passa por análise antes do pagamento.</p>
           <label>Valor do saque</label>
           <input class="field" name="amount" type="number" min="${MIN_WITHDRAWAL}" step="0.01" placeholder="${brl(MIN_WITHDRAWAL)}" required>
           <div class="form-grid">
@@ -2113,12 +2207,12 @@ function renderProfile(user, workerWallet, clientWallet, reputation, withdrawals
         <form class="panel finance-panel" method="post" action="/wallet/pix/create">
           <div class="finance-panel-head"><div><span class="tag">PIX</span><h3>Adicionar saldo</h3></div></div>
           ${financeConfig.asaasReady?`
-            <p class="muted small">Gere um QR Code dinâmico. O Nexus só credita o saldo após o Asaas confirmar o pagamento.</p>
+            <p class="muted small">Gere um QR Code PIX. O saldo é liberado somente após a confirmação do pagamento.</p>
             <label>Valor</label><input class="field" name="amount" type="number" min="10" max="50000" step="0.01" value="50.00" required>
             <label>CPF ou CNPJ do pagador</label><input class="field" name="cpf_cnpj" inputmode="numeric" maxlength="18" placeholder="Somente números ou formatado" required>
             <button class="btn primary wide">Gerar cobrança PIX</button>
             <div class="small muted topgap">Ambiente: ${financeConfig.asaasEnv==="production"?"Produção":"Sandbox/Teste"}</div>
-          `:`<div class="notice">Integração Asaas ainda não configurada. O administrador precisa cadastrar os Secrets antes de gerar cobranças reais.</div>`}
+          `:`<div class="notice">A recarga via PIX está temporariamente indisponível.</div>`}
         </form>
 
         <div class="panel finance-panel">
@@ -2138,17 +2232,17 @@ function renderProfile(user, workerWallet, clientWallet, reputation, withdrawals
             <div class="pix-grid">
               <div class="pix-qr">${pixDeposit.qr_image?`<img src="${pixDeposit.qr_image}" alt="QR Code PIX">`:"<div class='empty'>QR Code ainda não disponível. Gere novamente a mesma cobrança para tentar recuperar o QR.</div>"}</div>
               <div>
-                <p class="muted">Pague pelo aplicativo do seu banco. O saldo não é liberado apenas porque a tela foi aberta: o servidor espera a confirmação do Asaas.</p>
+                <p class="muted">Pague pelo aplicativo do seu banco. O saldo será liberado automaticamente após a confirmação do pagamento.</p>
                 <label>PIX copia e cola</label>
                 <textarea class="field pix-payload" readonly>${esc(pixDeposit.pix_payload||"")}</textarea>
                 <button type="button" class="btn secondary copy-pix" data-copy="${esc(pixDeposit.pix_payload||"")}">Copiar código PIX</button>
-                ${pixDeposit.expiration_date?`<div class="small muted topgap">Expiração informada pelo Asaas: ${esc(pixDeposit.expiration_date)}</div>`:""}
+                ${pixDeposit.expiration_date?`<div class="small muted topgap">Expira em: ${esc(pixDeposit.expiration_date)}</div>`:""}
               </div>
             </div>
-          `:pixDeposit.status==="creating"?`<div class="notice">A cobrança está sendo preparada. Atualize a página em alguns segundos ou gere novamente o mesmo valor para recuperar o QR sem duplicar a cobrança.</div>`
+          `:pixDeposit.status==="creating"?`<div class="notice">Sua cobrança está sendo preparada. Aguarde alguns instantes e atualize a página.</div>`
             :pixDeposit.status==="paid"?`<div class="flash ok">Pagamento confirmado e saldo creditado.</div>`
-            :pixDeposit.status==="refunded"?`<div class="flash err">Esse PIX foi estornado no Asaas e o crédito correspondente foi revertido da carteira.</div>`
-            :pixDeposit.status==="review_required"?`<div class="notice">Essa cobrança exige revisão administrativa por estorno parcial ou contestação.</div>`
+            :pixDeposit.status==="refunded"?`<div class="flash err">Esse pagamento foi estornado e o valor correspondente foi ajustado na carteira.</div>`
+            :pixDeposit.status==="review_required"?`<div class="notice">Esse pagamento está em análise. Se precisar, entre em contato com o suporte.</div>`
             :`<div class="flash err">A cobrança não pôde ser concluída. Gere uma nova cobrança PIX.</div>`}
         </div>
       `:""}
@@ -2163,7 +2257,6 @@ function renderProfile(user, workerWallet, clientWallet, reputation, withdrawals
     </div>
 
     ${user.is_admin?`<a class="btn secondary linkbtn admin-link" href="/?view=admin">Abrir painel Admin</a>`:""}
-    ${!financeConfig.adminEmailConfigured?`<div class="notice security-notice">Administrador não configurado por variável privada. Defina <b>ADMIN_EMAIL</b> no Worker antes de abrir a plataforma ao público.</div>`:""}
 
     <form method="post" action="/logout" class="logoutform"><button class="btn secondary">Sair</button></form>`;
 }
@@ -2240,7 +2333,7 @@ function renderClientHistory(entries) {
   return `<div class="history panel"><h3>Histórico</h3>${entries.length?entries.map(e=>`<div class="history-row"><div><b>${esc(e.description||e.type)}</b><small>${formatDateTime(e.created_at)}</small></div><div class="ledger-values"><span>Disponível ${signedBrl(e.delta_available)}</span><span>Reservado ${signedBrl(e.delta_reserved)}</span></div></div>`).join(""):`<div class="muted">Nenhuma movimentação ainda.</div>`}</div>`;
 }
 
-function renderAdmin(user,data,financeConfig={}) {
+function renderAdmin(user,data,financeConfig={},publicCopy=PUBLIC_CONTENT_DEFAULTS) {
   return `
     <section class="hero"><h1>Admin Bern Nexus</h1><p class="muted">Controle usuários, missões, PIX, saques e integridade financeira.</p></section>
 
@@ -2255,13 +2348,60 @@ function renderAdmin(user,data,financeConfig={}) {
       ${metric("Resultado plataforma",brl(data.platform))}
     </div>
 
+
+    <div class="section-title spaced"><h2>Conteúdo da plataforma</h2><span>Textos públicos</span></div>
+    <form class="panel admin-content-editor" method="post" action="/admin/content/save">
+      <div class="admin-content-head">
+        <div>
+          <b>Editar comunicação</b>
+          <p class="muted small">Altere as frases principais da LP e dos painéis sem editar o código.</p>
+        </div>
+        <button class="btn primary" type="submit">Salvar textos</button>
+      </div>
+      <div class="admin-content-grid">
+        ${publicContentFields().map(([key,label,max])=>`
+          <div class="admin-content-field">
+            <label>${esc(label)}</label>
+            ${max>150
+              ?`<textarea class="field" name="${esc(key)}" maxlength="${max}" rows="3">${esc(publicCopy[key]||PUBLIC_CONTENT_DEFAULTS[key]||"")}</textarea>`
+              :`<input class="field" name="${esc(key)}" maxlength="${max}" value="${esc(publicCopy[key]||PUBLIC_CONTENT_DEFAULTS[key]||"")}">`
+            }
+          </div>
+        `).join("")}
+      </div>
+      <div class="admin-content-footer">
+        <span class="muted small">Campo vazio volta para o texto padrão.</span>
+        <button class="btn primary" type="submit">Salvar alterações</button>
+      </div>
+    </form>
+
+    <div class="section-title spaced"><h2>Status de publicação</h2><span>Somente Admin</span></div>
+    <div class="panel publication-status">
+      <div class="publication-check ${financeConfig.adminEmailConfigured?"ok":"warn"}">
+        <span>${financeConfig.adminEmailConfigured?"✓":"!"}</span>
+        <div><b>Administrador</b><small>${financeConfig.adminEmailConfigured?"Conta administrativa pronta.":"Configuração administrativa pendente."}</small></div>
+      </div>
+      <div class="publication-check ${financeConfig.asaasReady?"ok":"warn"}">
+        <span>${financeConfig.asaasReady?"✓":"!"}</span>
+        <div><b>Recebimento PIX</b><small>${financeConfig.asaasReady?"Disponível para contratantes.":"Ainda indisponível."}</small></div>
+      </div>
+      <div class="publication-check ${financeConfig.webhookReady?"ok":"warn"}">
+        <span>${financeConfig.webhookReady?"✓":"!"}</span>
+        <div><b>Confirmação automática</b><small>${financeConfig.webhookReady?"Ativa.":"Pendente."}</small></div>
+      </div>
+      <div class="publication-check ${financeConfig.asaasEnv==="production"?"ok":"warn"}">
+        <span>${financeConfig.asaasEnv==="production"?"✓":"!"}</span>
+        <div><b>Ambiente financeiro</b><small>${financeConfig.asaasEnv==="production"?"Produção.":"Modo de testes."}</small></div>
+      </div>
+    </div>
+
     <div class="panel admin-config-panel">
       <div>
-        <b>Integração financeira</b>
+        <b>Operação financeira</b>
         <div class="small muted">
-          Asaas: ${financeConfig.asaasReady?"configurado":"não configurado"} ·
-          Webhook: ${financeConfig.webhookReady?"token configurado":"sem token"} ·
-          Ambiente: ${financeConfig.asaasEnv==="production"?"Produção":"Sandbox/Teste"}
+          PIX: ${financeConfig.asaasReady?"ativo":"indisponível"} ·
+          Confirmação: ${financeConfig.webhookReady?"automática":"pendente"} ·
+          Ambiente: ${financeConfig.asaasEnv==="production"?"Produção":"Teste"}
         </div>
       </div>
       ${financeConfig.asaasReady?`<form method="post" action="/admin/asaas/reconcile"><button class="btn secondary">Conciliar PIX pendentes</button></form>`:""}
@@ -2326,7 +2466,8 @@ function signedBrl(v) {
   return `${n>=0?"+":""}${brl(n)}`;
 }
 
-function renderLanding() {
+async function renderLanding(db) {
+  const copy=await getPublicContent(db);
   const lion = `<img class="lion-logo-img" src="${BRAND_LOGO_DATA}" alt="Leão Bern Nexus">`;
 
   return page("BERN NEXUS — Missões para renda extra e tarefas para negócios", `
@@ -2353,16 +2494,13 @@ function renderLanding() {
           </div>
 
           <div class="cinema-hero-copy reveal">
-            <span class="cinema-eyebrow">MISSÕES REAIS · RECOMPENSA CLARA</span>
-            <h1>Seu tempo pode virar <em>renda extra.</em></h1>
-            <p>
-              Entre no Bern Nexus, escolha uma missão disponível e veja exatamente
-              quanto você pode receber antes de começar.
-            </p>
+            <span class="cinema-eyebrow">${esc(copy.lp_hero_badge)}</span>
+            <h1>${esc(copy.lp_hero_title)} <em>${esc(copy.lp_hero_highlight)}</em></h1>
+            <p>${esc(copy.lp_hero_subtitle)}</p>
 
             <div class="cinema-actions">
               <a class="cinema-btn cinema-btn-gold" href="/register?role=worker">
-                <strong>Começar missões agora</strong>
+                <strong>${esc(copy.lp_worker_cta)}</strong>
                 <span>Criar perfil de trabalhador</span>
               </a>
               <a class="cinema-btn cinema-btn-ghost" href="#como">
@@ -2413,15 +2551,12 @@ function renderLanding() {
         <section id="negocio" class="cinema-screen cinema-screen-light cinema-business">
           <div class="cinema-business-copy reveal">
             <span class="cinema-eyebrow cinema-eyebrow-dark">PARA QUEM TEM UM NEGÓCIO</span>
-            <h2>Coloque pessoas reais para resolver pequenas tarefas.</h2>
-            <p>
-              Pesquisa, teste, opinião ou levantamento: publique o que precisa,
-              escolha quantas pessoas quer e acompanhe cada entrega no painel.
-            </p>
+            <h2>${esc(copy.lp_business_title)}</h2>
+            <p>${esc(copy.lp_business_subtitle)}</p>
 
             <div class="cinema-actions">
               <a class="cinema-btn cinema-btn-black" href="/register?role=client">
-                <strong>Publicar uma tarefa</strong>
+                <strong>${esc(copy.lp_business_cta)}</strong>
                 <span>Criar perfil de contratante</span>
               </a>
               <a class="cinema-btn cinema-btn-outline" href="#como">
@@ -2589,11 +2724,8 @@ function renderLanding() {
 
           <div class="cinema-final-copy reveal">
             <span class="cinema-eyebrow">BERN NEXUS</span>
-            <h2>Escolha de que lado você quer começar.</h2>
-            <p>
-              Faça pequenas missões para buscar renda extra ou publique tarefas
-              para colocar pessoas reais ajudando seu negócio.
-            </p>
+            <h2>${esc(copy.lp_final_title)}</h2>
+            <p>${esc(copy.lp_final_subtitle)}</p>
 
             <div class="final-adv-grid">
               <div class="final-adv-item"><strong>Missões rápidas</strong><span>Pesquisa, teste, opinião e mais.</span></div>
@@ -4543,6 +4675,45 @@ form{min-width:0}
     height:34px;
     font-size:18px;
   }
+}
+
+
+/* === PUBLICATION / CONTENT ADMIN v0.5.4 === */
+.admin-content-editor{max-width:none}
+.admin-content-head,.admin-content-footer{
+  display:flex;align-items:center;justify-content:space-between;gap:16px
+}
+.admin-content-head p{margin:5px 0 0}
+.admin-content-grid{
+  display:grid;grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:12px;margin-top:18px
+}
+.admin-content-field{min-width:0}
+.admin-content-field textarea.field{min-height:96px}
+.admin-content-footer{
+  margin-top:18px;padding-top:16px;border-top:1px solid #E5E2DC
+}
+.publication-status{
+  display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px
+}
+.publication-check{
+  display:flex;align-items:flex-start;gap:11px;padding:13px;
+  border-radius:14px;border:1px solid #DAD7D2;background:#F7F6F1
+}
+.publication-check>span{
+  width:29px;height:29px;flex:0 0 auto;display:grid;place-items:center;
+  border-radius:50%;font-weight:950
+}
+.publication-check.ok>span{background:#BC913C;color:#0A0A0A}
+.publication-check.warn>span{background:#0A0A0A;color:#E0B55A}
+.publication-check b,.publication-check small{display:block}
+.publication-check small{margin-top:4px;line-height:1.4;color:#716E69}
+@media(max-width:820px){
+  .admin-content-grid,.publication-status{grid-template-columns:1fr}
+}
+@media(max-width:560px){
+  .admin-content-head,.admin-content-footer{align-items:stretch;flex-direction:column}
+  .admin-content-head .btn,.admin-content-footer .btn{width:100%}
 }
 </style>
 </head>
