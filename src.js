@@ -3309,13 +3309,15 @@ html{scroll-behavior:smooth}
   background:#0A0A0A;color:#FFFFFF;overflow-x:hidden
 }
 .cinema-header{
-  position:fixed;top:0;left:50%;transform:translateX(-50%);
-  z-index:120;width:min(1280px,100%);
+  position:fixed;top:0;left:0;right:0;transform:none;
+  z-index:120;width:100%;max-width:none;
   display:flex;align-items:center;justify-content:space-between;gap:20px;
-  padding:14px 24px;
-  background:linear-gradient(180deg,rgba(10,10,10,.78),rgba(10,10,10,.16),transparent);
+  padding-top:14px;padding-bottom:14px;
+  padding-left:max(20px,calc((100vw - 1180px)/2));
+  padding-right:max(20px,calc((100vw - 1180px)/2));
+  background:linear-gradient(180deg,rgba(10,10,10,.92),rgba(10,10,10,.74));
   border-bottom:1px solid rgba(255,255,255,.08);
-  backdrop-filter:blur(12px)
+  backdrop-filter:blur(16px)
 }
 .cinema-brand{display:flex;align-items:center;gap:10px;color:#fff;text-decoration:none;font-weight:950;letter-spacing:.3px}
 .cinema-brand b{color:var(--gold-light)}.cinema-brand .lion-logo-img{width:38px;height:38px;border-radius:11px}
@@ -3389,10 +3391,48 @@ html{scroll-behavior:smooth}
 .category-card p{color:#716E69;font-size:13px;line-height:1.55;max-width:250px}
 .category-chip{display:inline-flex;align-items:center;justify-content:center;margin-top:18px;padding:8px 12px;border-radius:999px;background:#0A0A0A;color:#E0B55A;font-size:11px;font-weight:800}
 .cinema-final{background:radial-gradient(circle at 12% 20%,rgba(188,145,60,.20),transparent 20rem),radial-gradient(circle at 80% 75%,rgba(188,145,60,.16),transparent 22rem),#0A0A0A}
-.cinema-final-split{grid-template-columns:minmax(360px,.95fr) minmax(0,1.05fr);gap:46px;text-align:left;align-items:center}
-.homeoffice-stage{position:relative;min-height:520px}
-.homeoffice-glow{position:absolute;inset:10% 10% auto 10%;height:220px;border-radius:999px;background:radial-gradient(circle,rgba(188,145,60,.30),transparent 70%);filter:blur(20px)}
-.homeoffice-main{position:absolute;left:5%;top:14%;width:min(420px,88%);padding:18px;background:rgba(255,255,255,.06);border:1px solid rgba(224,181,90,.26);border-radius:28px;box-shadow:0 30px 80px rgba(0,0,0,.30);backdrop-filter:blur(14px)}
+.cinema-final-split{
+  grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+  gap:clamp(34px,5vw,72px);
+  text-align:left;
+  align-items:center
+}
+.homeoffice-stage{
+  position:relative;
+  min-height:0;
+  width:100%;
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  grid-template-areas:
+    "main main"
+    "a b"
+    "c c";
+  gap:12px;
+  align-content:center
+}
+.homeoffice-glow{
+  position:absolute;
+  inset:12% 8% auto 8%;
+  height:220px;
+  border-radius:999px;
+  background:radial-gradient(circle,rgba(188,145,60,.28),transparent 72%);
+  filter:blur(24px);
+  pointer-events:none
+}
+.homeoffice-main{
+  position:relative;
+  grid-area:main;
+  left:auto;top:auto;
+  width:100%;
+  min-width:0;
+  padding:18px;
+  background:rgba(255,255,255,.06);
+  border:1px solid rgba(224,181,90,.26);
+  border-radius:28px;
+  box-shadow:0 30px 80px rgba(0,0,0,.30);
+  backdrop-filter:blur(14px);
+  z-index:2
+}
 .homeoffice-monitor{background:#111;border:1px solid #2A2A2A;border-radius:22px;padding:16px}
 .monitor-bar{display:flex;gap:6px;margin-bottom:14px}
 .monitor-bar span{width:8px;height:8px;border-radius:50%;background:#4E4E4E}
@@ -3400,15 +3440,27 @@ html{scroll-behavior:smooth}
 .person-emoji{width:92px;height:92px;border-radius:22px;display:grid;place-items:center;font-size:50px;background:linear-gradient(145deg,#BC913C,#86672A)}
 .monitor-text b{display:block;font-size:20px;color:#fff}
 .monitor-text small{display:block;margin-top:8px;color:#BBB9B6;line-height:1.55;font-size:12px}
-.homeoffice-float{position:absolute;padding:14px 16px;border-radius:18px;background:#fff;color:#0A0A0A;border:1px solid #DAD7D2;box-shadow:0 18px 42px rgba(0,0,0,.18)}
+.homeoffice-float{
+  position:relative;
+  inset:auto;
+  width:auto;
+  min-width:0;
+  padding:14px 16px;
+  border-radius:18px;
+  background:#fff;
+  color:#0A0A0A;
+  border:1px solid #DAD7D2;
+  box-shadow:0 18px 42px rgba(0,0,0,.18);
+  z-index:2
+}
 .homeoffice-float small{display:block;color:#716E69;font-size:10px}
-.homeoffice-float b{display:block;margin-top:5px;font-size:16px;line-height:1.35}
-.homeoffice-float-a{right:0;top:8%;width:210px;animation:floatB 5.6s ease-in-out infinite}
-.homeoffice-float-b{left:0;bottom:8%;width:220px;animation:floatC 6.1s ease-in-out infinite}
-.homeoffice-float-c{right:6%;bottom:18%;width:240px;animation:floatA 6.8s ease-in-out infinite}
-.cinema-final-copy{max-width:760px}
-.cinema-final-copy h2{font-size:clamp(44px,6vw,76px);margin-top:8px}
-.cinema-final-copy>p{color:#B9B9B9;max-width:640px}
+.homeoffice-float b{display:block;margin-top:5px;font-size:15px;line-height:1.35}
+.homeoffice-float-a{grid-area:a;animation:floatB 5.6s ease-in-out infinite}
+.homeoffice-float-b{grid-area:b;animation:floatC 6.1s ease-in-out infinite}
+.homeoffice-float-c{grid-area:c;animation:floatA 6.8s ease-in-out infinite}
+.cinema-final-copy{width:100%;max-width:700px;min-width:0}
+.cinema-final-copy h2{font-size:clamp(42px,5.4vw,72px);margin-top:8px;max-width:680px}
+.cinema-final-copy>p{color:#B9B9B9;max-width:620px;margin-left:0;margin-right:0}
 .final-adv-grid{display:grid;grid-template-columns:1fr;gap:10px;margin:24px 0 0}
 .final-adv-item{padding:14px 16px;border-radius:16px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.10)}
 .final-adv-item strong{display:block;color:#fff;font-size:15px}
@@ -3942,6 +3994,298 @@ form{min-width:0}
   .app .hero-mini-stats{grid-template-columns:1fr}
   .app .hero-mini-card:last-child{grid-column:auto}
   .app .nav a{font-size:9px;padding-inline:2px}
+}
+
+
+/* === RESPONSIVE POSITIONING v0.5.2 === */
+:root{--lp-max:1180px}
+
+/* Header spans the viewport; its children align with every section. */
+.lp-cinema .cinema-header{
+  box-sizing:border-box;
+  width:100vw;
+  max-width:100vw;
+}
+.lp-cinema .cinema-brand,
+.lp-cinema .cinema-nav{min-width:0}
+.lp-cinema .cinema-nav{justify-content:flex-end}
+
+/* Sections use exactly the same horizontal alignment. */
+.lp-cinema .cinema-screen{
+  box-sizing:border-box;
+  width:100%;
+  padding-left:max(20px,calc((100vw - var(--lp-max))/2));
+  padding-right:max(20px,calc((100vw - var(--lp-max))/2));
+}
+.lp-cinema .cinema-hero,
+.lp-cinema .cinema-business,
+.lp-cinema .cinema-final-split{
+  column-gap:clamp(32px,5vw,72px);
+}
+.lp-cinema .cinema-hero>*,
+.lp-cinema .cinema-business>*,
+.lp-cinema .cinema-final-split>*{
+  min-width:0;
+}
+
+/* Do not let animated transforms create page overflow. */
+.lp-cinema .float-stack,
+.lp-cinema .business-stage,
+.lp-cinema .homeoffice-stage{
+  overflow:visible;
+  max-width:100%;
+}
+.lp-cinema .cinema-final{
+  overflow:hidden;
+}
+
+/* Home office panel is now a stable rectangle. */
+.lp-cinema .homeoffice-stage{
+  padding:10px;
+  border-radius:32px;
+  background:linear-gradient(145deg,rgba(188,145,60,.10),rgba(255,255,255,.025));
+  border:1px solid rgba(224,181,90,.16);
+}
+.lp-cinema .homeoffice-main{
+  aspect-ratio:16 / 9;
+  display:flex;
+  align-items:stretch;
+}
+.lp-cinema .homeoffice-monitor{
+  width:100%;
+  min-height:0;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+}
+.lp-cinema .monitor-content{min-width:0}
+.lp-cinema .monitor-text{min-width:0}
+.lp-cinema .monitor-text b,
+.lp-cinema .monitor-text small{overflow-wrap:anywhere}
+
+/* Final advantages stay compact instead of stretching the slide. */
+.lp-cinema .final-adv-grid{
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:8px;
+}
+.lp-cinema .final-adv-item{min-width:0}
+.lp-cinema .final-adv-item strong,
+.lp-cinema .final-adv-item span{overflow-wrap:anywhere}
+
+/* Keep category cards consistently rectangular. */
+.lp-cinema .cinema-card-track{
+  align-items:stretch;
+}
+.lp-cinema .category-card{
+  height:100%;
+  min-height:340px;
+  display:flex;
+  flex-direction:column;
+}
+.lp-cinema .category-card p{max-width:none}
+.lp-cinema .category-chip{margin-top:auto;align-self:flex-start}
+
+/* Laptop: stack the final section earlier, before it gets cramped. */
+@media(max-width:1120px){
+  .lp-cinema .cinema-final-split{
+    grid-template-columns:1fr;
+    gap:34px;
+  }
+  .lp-cinema .homeoffice-stage{
+    width:min(760px,100%);
+    margin:0 auto;
+  }
+  .lp-cinema .cinema-final-copy{
+    width:min(760px,100%);
+    max-width:none;
+    margin:0 auto;
+    text-align:center;
+  }
+  .lp-cinema .cinema-final-copy h2,
+  .lp-cinema .cinema-final-copy>p{
+    max-width:none;
+    margin-left:auto;
+    margin-right:auto;
+  }
+  .lp-cinema .cinema-final-copy .cinema-actions{
+    justify-content:center;
+  }
+}
+
+/* Tablet */
+@media(max-width:900px){
+  .lp-cinema .cinema-header{
+    padding-left:18px;
+    padding-right:18px;
+  }
+  .lp-cinema .cinema-nav{gap:12px}
+  .lp-cinema .cinema-screen{
+    padding-left:18px;
+    padding-right:18px;
+  }
+  .lp-cinema .cinema-card-track{
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+  .lp-cinema .category-card{min-height:300px}
+  .lp-cinema .final-adv-grid{
+    grid-template-columns:1fr;
+  }
+}
+
+/* Mobile: no absolute/floating layout at all. */
+@media(max-width:720px){
+  .lp-cinema .cinema-header{
+    left:0;right:0;
+    width:100%;
+    max-width:100%;
+    padding:9px 12px;
+  }
+  .lp-cinema .cinema-brand .lion-logo-img{
+    width:34px;height:34px
+  }
+  .lp-cinema .cinema-nav{
+    gap:7px;
+    flex:0 0 auto;
+  }
+  .lp-cinema .cinema-nav-cta{
+    padding:9px 10px;
+    white-space:nowrap;
+  }
+
+  .lp-cinema .cinema-screen{
+    padding-left:14px;
+    padding-right:14px;
+    padding-top:88px;
+    padding-bottom:78px;
+  }
+
+  .lp-cinema .float-stack,
+  .lp-cinema .business-stage,
+  .lp-cinema .homeoffice-stage{
+    display:grid;
+    grid-template-columns:1fr;
+    grid-template-areas:none;
+    gap:10px;
+    width:100%;
+    max-width:100%;
+    padding:0;
+    border:0;
+    background:transparent;
+    overflow:visible;
+  }
+
+  .lp-cinema .float-card,
+  .lp-cinema .biz-float,
+  .lp-cinema .homeoffice-main,
+  .lp-cinema .homeoffice-float{
+    position:relative!important;
+    inset:auto!important;
+    grid-area:auto!important;
+    width:100%!important;
+    max-width:100%!important;
+    margin:0!important;
+    animation:none!important;
+    transform:none!important;
+  }
+
+  .lp-cinema .homeoffice-main{
+    aspect-ratio:auto;
+    padding:12px;
+  }
+  .lp-cinema .homeoffice-monitor{
+    min-height:230px;
+  }
+  .lp-cinema .monitor-content{
+    grid-template-columns:64px minmax(0,1fr);
+    gap:12px;
+  }
+  .lp-cinema .person-emoji{
+    width:64px;height:64px;font-size:34px
+  }
+  .lp-cinema .monitor-text b{font-size:17px}
+
+  .lp-cinema .cinema-final-copy{
+    width:100%;
+    margin-top:30px;
+    text-align:left;
+  }
+  .lp-cinema .cinema-final-copy h2,
+  .lp-cinema .cinema-final-copy>p{
+    margin-left:0;
+    margin-right:0;
+  }
+  .lp-cinema .cinema-final-copy .cinema-actions{
+    justify-content:stretch;
+  }
+
+  .lp-cinema .cinema-card-track{
+    grid-template-columns:1fr;
+  }
+  .lp-cinema .category-card{
+    min-height:0;
+    height:auto;
+  }
+  .lp-cinema .category-chip{margin-top:18px}
+
+  /* Header: only logo + two essential actions on small screens. */
+  .lp-cinema .cinema-nav a:not([href="/login"]):not(.cinema-nav-cta){
+    display:none;
+  }
+}
+
+/* Small phones */
+@media(max-width:430px){
+  .lp-cinema .cinema-header{padding:8px 10px}
+  .lp-cinema .cinema-brand{gap:7px}
+  .lp-cinema .cinema-brand span{font-size:11px}
+  .lp-cinema .cinema-nav a[href="/login"]{display:none}
+  .lp-cinema .cinema-nav-cta{font-size:10px;padding:9px}
+  .lp-cinema .cinema-screen{padding-left:12px;padding-right:12px}
+  .lp-cinema .cinema-hero h1,
+  .lp-cinema .cinema-business h2,
+  .lp-cinema .cinema-section-title h2,
+  .lp-cinema .cinema-final h2{
+    font-size:clamp(36px,11vw,48px);
+    letter-spacing:-1.7px;
+  }
+}
+
+
+/* === PORTAL ALIGNMENT v0.5.2 === */
+@media(min-width:900px){
+  .app{
+    grid-template-columns:220px minmax(0,1fr);
+  }
+  .app>header{
+    width:100%;
+    min-width:0;
+  }
+  .app>main{
+    min-width:0;
+    width:100%;
+    max-width:none;
+  }
+  .app .nav{
+    width:220px;
+    min-width:220px;
+  }
+  .app .grid{
+    width:100%;
+    align-items:stretch;
+  }
+}
+@media(max-width:899px){
+  .app{
+    overflow-x:hidden;
+  }
+  .app>main{
+    overflow-x:hidden;
+  }
+  .app .nav{
+    width:100%;
+    left:0;
+    right:0;
+  }
 }
 </style>
 </head>
