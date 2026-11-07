@@ -9,23 +9,23 @@ const TERMS_VERSION = "2026-11-07";
 const PRIVACY_VERSION = "2026-11-07";
 
 const PUBLIC_CONTENT_DEFAULTS = {
-  lp_hero_badge: "MISSÕES REAIS · RECOMPENSA CLARA",
-  lp_hero_title: "Seu tempo pode virar",
-  lp_hero_highlight: "renda extra.",
-  lp_hero_subtitle: "Entre no Bern Nexus, escolha uma missão disponível e veja exatamente quanto você pode receber antes de começar.",
-  lp_worker_cta: "Começar missões agora",
+  lp_hero_badge: "TAREFAS PAGAS · VOCÊ ESCOLHE O QUE FAZER",
+  lp_hero_title: "Faça pequenas tarefas e",
+  lp_hero_highlight: "receba por elas.",
+  lp_hero_subtitle: "Empresas e profissionais publicam tarefas simples. Você escolhe uma tarefa disponível, segue as instruções, envia o resultado e recebe a recompensa informada quando o trabalho é aprovado.",
+  lp_worker_cta: "Ver tarefas disponíveis",
   lp_business_title: "Coloque pessoas reais para resolver pequenas tarefas.",
   lp_business_subtitle: "Pesquisa, teste, opinião ou levantamento: publique o que precisa, escolha quantas pessoas quer e acompanhe cada entrega no painel.",
   lp_business_cta: "Publicar uma tarefa",
   lp_final_title: "Escolha de que lado você quer começar.",
-  lp_final_subtitle: "Faça pequenas missões para buscar renda extra ou publique tarefas para colocar pessoas reais ajudando seu negócio.",
-  worker_hero_kicker: "Painel do trabalhador",
-  worker_hero_title: "Ganhe fazendo pequenas missões.",
-  worker_hero_subtitle: "Encontre tarefas rapidamente, filtre melhor e foque nas missões que mais valem a pena para você.",
-  client_hero_title: "Seu painel de missões.",
-  client_hero_subtitle: "Publique tarefas e acompanhe os trabalhos recebidos.",
-  create_hero_title: "Publicar missão",
-  create_hero_subtitle: "Defina a recompensa, o prazo e quantas pessoas você precisa.",
+  lp_final_subtitle: "Escolha tarefas pagas para buscar renda extra ou publique uma tarefa para receber ajuda de pessoas reais.",
+  worker_hero_kicker: "Tarefas pagas disponíveis",
+  worker_hero_title: "Escolha uma tarefa. Faça. Envie. Receba se aprovado.",
+  worker_hero_subtitle: "Veja o valor, o prazo e as instruções antes de começar. Você escolhe quais tarefas quer fazer.",
+  client_hero_title: "Publique tarefas para pessoas reais.",
+  client_hero_subtitle: "Explique o que precisa, escolha quantas pessoas quer e acompanhe cada trabalho recebido.",
+  create_hero_title: "Publicar tarefa",
+  create_hero_subtitle: "Explique o que precisa, defina a recompensa, o prazo e quantas pessoas devem realizar a tarefa.",
   profile_hero_title: "Perfil e carteira",
   profile_hero_subtitle: "Acompanhe sua reputação, seus saldos e seu histórico."
 };
@@ -387,6 +387,29 @@ async function ensureSchema(db) {
       await ensureColumn(db, "nexus_users", "terms_version", "TEXT");
       await ensureColumn(db, "nexus_users", "privacy_version", "TEXT");
       await ensureColumn(db, "nexus_users", "legal_accepted_at", "TEXT");
+      // v0.5.6: migra somente textos padrão antigos para a linguagem "tarefa".
+      const publicCopyMigrations=[
+        ["lp_hero_badge","TAREFAS REAIS · RECOMPENSA CLARA",PUBLIC_CONTENT_DEFAULTS.lp_hero_badge],
+        ["lp_hero_title","Seu tempo pode virar",PUBLIC_CONTENT_DEFAULTS.lp_hero_title],
+        ["lp_hero_highlight","renda extra.",PUBLIC_CONTENT_DEFAULTS.lp_hero_highlight],
+        ["lp_hero_subtitle","Entre no Bern Nexus, escolha uma tarefa disponível e veja exatamente quanto você pode receber antes de começar.",PUBLIC_CONTENT_DEFAULTS.lp_hero_subtitle],
+        ["lp_worker_cta","Começar tarefas agora",PUBLIC_CONTENT_DEFAULTS.lp_worker_cta],
+        ["lp_final_subtitle","Faça pequenas tarefas para buscar renda extra ou publique tarefas para colocar pessoas reais ajudando seu negócio.",PUBLIC_CONTENT_DEFAULTS.lp_final_subtitle],
+        ["worker_hero_kicker","Painel do trabalhador",PUBLIC_CONTENT_DEFAULTS.worker_hero_kicker],
+        ["worker_hero_title","Ganhe fazendo pequenas tarefas.",PUBLIC_CONTENT_DEFAULTS.worker_hero_title],
+        ["worker_hero_subtitle","Encontre tarefas rapidamente, filtre melhor e foque nas tarefas que mais valem a pena para você.",PUBLIC_CONTENT_DEFAULTS.worker_hero_subtitle],
+        ["client_hero_title","Seu painel de tarefas.",PUBLIC_CONTENT_DEFAULTS.client_hero_title],
+        ["client_hero_subtitle","Publique tarefas e acompanhe os trabalhos recebidos.",PUBLIC_CONTENT_DEFAULTS.client_hero_subtitle],
+        ["create_hero_title","Publicar tarefa",PUBLIC_CONTENT_DEFAULTS.create_hero_title],
+        ["create_hero_subtitle","Defina a recompensa, o prazo e quantas pessoas você precisa.",PUBLIC_CONTENT_DEFAULTS.create_hero_subtitle]
+      ];
+      for(const [key,oldValue,newValue] of publicCopyMigrations){
+        await db.prepare(`
+          UPDATE nexus_public_content
+          SET content_value=?,updated_at=CURRENT_TIMESTAMP
+          WHERE content_key=? AND content_value=?
+        `).bind(newValue,key,oldValue).run();
+      }
       await ensureColumn(db, "nexus_missions", "deadline", "TEXT");
       await ensureColumn(db, "nexus_missions", "estimated_minutes", "INTEGER NOT NULL DEFAULT 5");
       await ensureColumn(db, "nexus_missions", "fee_rate", "REAL NOT NULL DEFAULT 0.20");
@@ -397,7 +420,7 @@ async function ensureSchema(db) {
 
       await db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_nexus_mission_ref ON nexus_missions(mission_ref) WHERE mission_ref IS NOT NULL").run();
 
-      // Missões antigas sem reserva financeira ficam fechadas para não consumir saldo fictício.
+      // Tarefas antigas sem reserva financeira ficam fechadas para não consumir saldo fictício.
       await db.prepare("UPDATE nexus_missions SET status='closed' WHERE funded=0 AND status='open'").run();
 
       await db.prepare(`
@@ -797,7 +820,7 @@ async function expireMissions(db) {
   }
 }
 
-async function closeMissionFunds(db, missionId, clientId, reason = "Missão fechada") {
+async function closeMissionFunds(db, missionId, clientId, reason = "Tarefa fechada") {
   const actionRef=`close_release:${missionId}:${Date.now()}:${randomHex(3)}`;
   const desc=clean(`${reason}: saldo não utilizado liberado`,180);
   const calc = `
@@ -861,7 +884,7 @@ async function reopenMissionFunds(db, missionId, clientId) {
     db.prepare(`
       WITH c AS (${calc})
       INSERT INTO nexus_client_ledger(user_id,delta_available,delta_reserved,type,source_ref,description)
-      SELECT c.client_id,-c.needed,c.needed,'mission_rereserve',?,'Reserva para reabrir missão'
+      SELECT c.client_id,-c.needed,c.needed,'mission_rereserve',?,'Reserva para reabrir tarefa'
       FROM c JOIN nexus_client_wallet w ON w.user_id=c.client_id
       WHERE c.needed>0 AND w.available>=c.needed
     `).bind(missionId,clientId,actionRef),
@@ -887,9 +910,9 @@ async function reopenMissionFunds(db, missionId, clientId) {
   if(Number(result?.[2]?.meta?.changes||0)>0) return {ok:true};
 
   const m=await db.prepare("SELECT deadline FROM nexus_missions WHERE id=? AND client_id=? LIMIT 1").bind(missionId,clientId).first();
-  if(!m) return {ok:false,message:"Missão não encontrada."};
-  if(m.deadline&&String(m.deadline).slice(0,10)<todayDate()) return {ok:false,message:"O prazo dessa missão já terminou."};
-  return {ok:false,message:"Saldo insuficiente para reabrir a missão."};
+  if(!m) return {ok:false,message:"Tarefa não encontrada."};
+  if(m.deadline&&String(m.deadline).slice(0,10)<todayDate()) return {ok:false,message:"O prazo dessa tarefa já terminou."};
+  return {ok:false,message:"Saldo insuficiente para reabrir a tarefa."};
 }
 
 async function getWorkerWallet(db, userId) {
@@ -1186,8 +1209,8 @@ function publicContentFields() {
     ["worker_hero_subtitle","Trabalhador · subtítulo",280],
     ["client_hero_title","Contratante · título",140],
     ["client_hero_subtitle","Contratante · subtítulo",280],
-    ["create_hero_title","Publicar missão · título",120],
-    ["create_hero_subtitle","Publicar missão · subtítulo",280],
+    ["create_hero_title","Publicar tarefa · título",120],
+    ["create_hero_subtitle","Publicar tarefa · subtítulo",280],
     ["profile_hero_title","Perfil · título",120],
     ["profile_hero_subtitle","Perfil · subtítulo",280]
   ];
@@ -1333,34 +1356,34 @@ function renderTermsPage() {
           <p class="legal-lead">Estes Termos regulam o uso do Bern Nexus por trabalhadores, contratantes e demais usuários.</p>
 
           <h2>1. O que é o Bern Nexus</h2>
-          <p>O Bern Nexus é uma plataforma que conecta pessoas interessadas em realizar pequenas tarefas com pessoas ou negócios que precisam de pesquisas, testes privados, opiniões, levantamentos e outras atividades legítimas descritas em cada missão.</p>
+          <p>O Bern Nexus é uma plataforma que conecta pessoas interessadas em realizar pequenas tarefas com pessoas ou negócios que precisam de pesquisas, testes privados, opiniões, levantamentos e outras atividades legítimas descritas em cada tarefa.</p>
 
           <h2>2. Elegibilidade e conta</h2>
           <p>Para usar funcionalidades financeiras, o usuário declara possuir capacidade legal para contratar e fornecer informações verdadeiras e atualizadas. A conta é pessoal e não deve ser compartilhada.</p>
 
           <h2>3. Trabalhadores</h2>
-          <p>As missões são opcionais e exibem recompensa, prazo e instruções antes do aceite. A existência de missões, frequência e renda não são garantidas. A recompensa depende da execução adequada e da aprovação conforme as regras da missão.</p>
+          <p>As tarefas são opcionais e exibem recompensa, prazo e instruções antes do aceite. A existência de tarefas, frequência e renda não são garantidas. A recompensa depende da execução adequada e da aprovação conforme as regras da tarefa.</p>
 
           <h2>4. Contratantes</h2>
-          <p>O contratante deve publicar instruções claras, manter saldo suficiente para o custo final informado e avaliar os trabalhos de boa-fé. O Bern Nexus poderá suspender missões abusivas, enganosas, ilegais ou incompatíveis com as regras da plataforma.</p>
+          <p>O contratante deve publicar instruções claras, manter saldo suficiente para o custo final informado e avaliar os trabalhos de boa-fé. O Bern Nexus poderá suspender tarefas abusivas, enganosas, ilegais ou incompatíveis com as regras da plataforma.</p>
 
           <h2>5. Atividades proibidas</h2>
           <p>Não são permitidas tarefas destinadas a manipular avaliações públicas, seguidores, curtidas, comentários, rankings, métricas, votações ou reputações; fraude, spam, assédio, coleta indevida de dados, conteúdo ilegal, golpes, falsidade ou qualquer atividade que viole direitos de terceiros.</p>
 
           <h2>6. Pagamentos, saldo e saques</h2>
-          <p>Valores apresentados ao trabalhador representam a recompensa daquela missão. O contratante visualiza o custo final aplicável. Créditos e saques podem passar por confirmação, análise antifraude e conciliação antes de ficarem disponíveis ou serem considerados concluídos.</p>
+          <p>Valores apresentados ao trabalhador representam a recompensa daquela tarefa. O contratante visualiza o custo final aplicável. Créditos e saques podem passar por confirmação, análise antifraude e conciliação antes de ficarem disponíveis ou serem considerados concluídos.</p>
 
           <h2>7. Aprovação e disputas</h2>
           <p>O contratante poderá aprovar ou rejeitar trabalhos conforme as instruções publicadas. O Bern Nexus poderá revisar situações excepcionais para prevenir abuso, fraude, duplicidade ou inconsistência financeira.</p>
 
           <h2>8. Suspensão e encerramento</h2>
-          <p>Contas e missões podem ser limitadas ou suspensas quando houver indícios de fraude, violação destes Termos, risco à plataforma ou a terceiros, ou necessidade de cumprimento legal.</p>
+          <p>Contas e tarefas podem ser limitadas ou suspensas quando houver indícios de fraude, violação destes Termos, risco à plataforma ou a terceiros, ou necessidade de cumprimento legal.</p>
 
           <h2>9. Propriedade intelectual</h2>
-          <p>A marca, identidade visual, software e elementos próprios do Bern Nexus permanecem protegidos pelos direitos aplicáveis. O usuário mantém os direitos sobre conteúdo próprio que enviar, concedendo apenas as autorizações necessárias à execução da missão e operação da plataforma.</p>
+          <p>A marca, identidade visual, software e elementos próprios do Bern Nexus permanecem protegidos pelos direitos aplicáveis. O usuário mantém os direitos sobre conteúdo próprio que enviar, concedendo apenas as autorizações necessárias à execução da tarefa e operação da plataforma.</p>
 
           <h2>10. Limites e disponibilidade</h2>
-          <p>O Bern Nexus busca manter a plataforma disponível e segura, mas não garante funcionamento ininterrupto, quantidade mínima de missões, ganhos, resultados comerciais ou compatibilidade com todos os dispositivos.</p>
+          <p>O Bern Nexus busca manter a plataforma disponível e segura, mas não garante funcionamento ininterrupto, quantidade mínima de tarefas, ganhos, resultados comerciais ou compatibilidade com todos os dispositivos.</p>
 
           <h2>11. Alterações</h2>
           <p>Estes Termos poderão ser atualizados. Quando uma nova versão exigir aceite, o usuário será solicitado a confirmá-la antes de continuar utilizando a plataforma.</p>
@@ -1384,10 +1407,10 @@ function renderPrivacyPage() {
           <p class="legal-lead">Esta Política explica, em linguagem direta, quais dados o Bern Nexus utiliza e por quê.</p>
 
           <h2>1. Dados que podemos tratar</h2>
-          <p>Podemos tratar dados cadastrais como nome e e-mail; informações de conta e perfil; registros de missões, trabalhos, aprovações e carteira; dados necessários a pagamentos e saques; mensagens enviadas ao suporte; e registros técnicos de segurança, como identificadores de sessão e informações destinadas a prevenir abuso.</p>
+          <p>Podemos tratar dados cadastrais como nome e e-mail; informações de conta e perfil; registros de tarefas, trabalhos, aprovações e carteira; dados necessários a pagamentos e saques; mensagens enviadas ao suporte; e registros técnicos de segurança, como identificadores de sessão e informações destinadas a prevenir abuso.</p>
 
           <h2>2. Finalidades</h2>
-          <p>Usamos os dados para criar e autenticar contas, operar missões, processar e conciliar pagamentos, permitir saques, prevenir fraude, oferecer suporte, manter segurança, cumprir obrigações legais e melhorar a experiência da plataforma.</p>
+          <p>Usamos os dados para criar e autenticar contas, operar tarefas, processar e conciliar pagamentos, permitir saques, prevenir fraude, oferecer suporte, manter segurança, cumprir obrigações legais e melhorar a experiência da plataforma.</p>
 
           <h2>3. Minimização</h2>
           <p>Buscamos limitar o tratamento ao necessário para cada finalidade. Informações usadas apenas para uma operação específica podem ser encaminhadas ao prestador responsável sem permanecer armazenadas no Bern Nexus quando isso não for necessário.</p>
@@ -1425,7 +1448,7 @@ function renderSupportPage(url, user) {
         <section class="support-intro">
           <span class="legal-kicker">SUPORTE BERN NEXUS</span>
           <h1>Como podemos ajudar?</h1>
-          <p>Envie sua dúvida, problema financeiro, solicitação de privacidade ou dificuldade com uma missão.</p>
+          <p>Envie sua dúvida, problema financeiro, solicitação de privacidade ou dificuldade com uma tarefa.</p>
         </section>
         ${ticket?`<div class="support-success"><b>Solicitação recebida.</b><span>Seu protocolo é <strong>${esc(ticket)}</strong>. Guarde este código.</span></div>`:""}
         ${err?`<div class="flash err">${esc(err)}</div>`:""}
@@ -1436,7 +1459,7 @@ function renderSupportPage(url, user) {
           </div>
           <label>Assunto</label>
           <select class="field" name="subject" required>
-            <option value="Missão ou trabalho">Missão ou trabalho</option>
+            <option value="Tarefa ou trabalho">Tarefa ou trabalho</option>
             <option value="Pagamento ou saldo">Pagamento ou saldo</option>
             <option value="Saque">Saque</option>
             <option value="Conta e acesso">Conta e acesso</option>
@@ -1444,7 +1467,7 @@ function renderSupportPage(url, user) {
             <option value="Outro">Outro</option>
           </select>
           <label>Mensagem</label>
-          <textarea class="field" name="message" minlength="10" maxlength="2000" required placeholder="Conte o que aconteceu e, se houver, informe o número da missão ou referência do pagamento."></textarea>
+          <textarea class="field" name="message" minlength="10" maxlength="2000" required placeholder="Conte o que aconteceu e, se houver, informe o número da tarefa ou referência do pagamento."></textarea>
           <button class="btn primary wide">Enviar para o suporte</button>
         </form>
         ${renderLegalFooter()}
@@ -1579,7 +1602,7 @@ async function handleLogout(request, db) {
 }
 
 async function handleCreateMission(request, db, user) {
-  if(!canClient(user)) return redirect("/?view=create&err="+enc("Seu perfil não pode publicar missões."),request);
+  if(!canClient(user)) return redirect("/?view=create&err="+enc("Seu perfil não pode publicar tarefas."),request);
 
   const f=await request.formData();
   const title=clean(f.get("title"),100);
@@ -1640,16 +1663,16 @@ async function handleCreateMission(request, db, user) {
     const already=await db.prepare("SELECT id FROM nexus_missions WHERE mission_ref=? LIMIT 1").bind(missionRef).first();
     if(already) return redirect("/?view=client&msg="+enc("Essa publicação já tinha sido processada. Nenhum saldo foi reservado novamente."),request);
     const review=await db.prepare("SELECT id FROM nexus_pix_deposits WHERE user_id=? AND status='review_required' LIMIT 1").bind(user.id).first();
-    if(review) return redirect("/?view=create&err="+enc("Sua carteira está temporariamente em análise. Entre em contato com o suporte antes de publicar novas missões."),request);
+    if(review) return redirect("/?view=create&err="+enc("Sua carteira está temporariamente em análise. Entre em contato com o suporte antes de publicar novas tarefas."),request);
     const w=await db.prepare("SELECT available FROM nexus_client_wallet WHERE user_id=?").bind(user.id).first();
     return redirect("/?view=create&err="+enc(`Saldo insuficiente. Custo final: ${brl(total)}. Saldo disponível: ${brl(w?.available||0)}.`),request);
   }
 
-  return redirect("/?view=client&msg="+enc(`Missão publicada. Custo final reservado: ${brl(total)}.`),request);
+  return redirect("/?view=client&msg="+enc(`Tarefa publicada. Custo final reservado: ${brl(total)}.`),request);
 }
 
 async function handleStartMission(request, db, user, missionId) {
-  if(!canWorker(user)) return redirect("/?err="+enc("Seu perfil não pode executar missões."),request);
+  if(!canWorker(user)) return redirect("/?err="+enc("Seu perfil não pode executar tarefas."),request);
 
   try {
     const r=await db.prepare(`
@@ -1670,18 +1693,18 @@ async function handleStartMission(request, db, user, missionId) {
     `).bind(user.id,missionId,user.id,user.id).run();
 
     if(Number(r.meta?.changes||0)>0) {
-      return redirect("/?view=mine&msg="+enc("Missão aceita. Agora envie o trabalho."),request);
+      return redirect("/?view=mine&msg="+enc("Tarefa aceita. Agora envie o trabalho."),request);
     }
   } catch(e) {
     if(!String(e).includes("UNIQUE")) throw e;
   }
 
   const mission=await db.prepare("SELECT status,deadline,client_id FROM nexus_missions WHERE id=? LIMIT 1").bind(missionId).first();
-  if(!mission||mission.status!=="open") return redirect("/?err="+enc("Missão indisponível."),request);
-  if(Number(mission.client_id)===Number(user.id)) return redirect("/?err="+enc("Você não pode executar sua própria missão."),request);
+  if(!mission||mission.status!=="open") return redirect("/?err="+enc("Tarefa indisponível."),request);
+  if(Number(mission.client_id)===Number(user.id)) return redirect("/?err="+enc("Você não pode executar sua própria tarefa."),request);
   const already=await db.prepare("SELECT id FROM nexus_submissions WHERE mission_id=? AND worker_id=? LIMIT 1").bind(missionId,user.id).first();
-  if(already) return redirect("/?view=mine&msg="+enc("Você já participou dessa missão."),request);
-  return redirect("/?err="+enc("As vagas desta missão acabaram ou o prazo terminou."),request);
+  if(already) return redirect("/?view=mine&msg="+enc("Você já participou dessa tarefa."),request);
+  return redirect("/?err="+enc("As vagas desta tarefa acabaram ou o prazo terminou."),request);
 }
 
 async function handleCancelSubmission(request, db, user, submissionId) {
@@ -1755,7 +1778,7 @@ async function handleSubmitWork(request, db, user, submissionId) {
     WHERE id=? AND worker_id=? AND status='started'
   `).bind(answer, proof || null, submissionId, user.id).run();
 
-  if (!r.meta?.changes) return redirect("/?view=mine&err=" + enc("Essa missão não pode mais ser enviada."), request);
+  if (!r.meta?.changes) return redirect("/?view=mine&err=" + enc("Essa tarefa não pode mais ser enviada."), request);
   return redirect("/?view=mine&msg=" + enc("Trabalho enviado para aprovação."), request);
 }
 
@@ -1771,7 +1794,7 @@ async function handleReview(request, db, user, submissionId, action) {
                ROUND(m.reward*(1+m.fee_rate),2),
                -ROUND(m.reward*(1+m.fee_rate),2),
                'rejection_release',?,
-               'Trabalho rejeitado em missão fechada: reserva liberada'
+               'Trabalho rejeitado em tarefa fechada: reserva liberada'
         FROM nexus_submissions s JOIN nexus_missions m ON m.id=s.mission_id
         WHERE s.id=? AND s.status='submitted' AND m.client_id=? AND m.status='closed'
           AND m.reserved_remaining>=ROUND(m.reward*(1+m.fee_rate),2)
@@ -1801,7 +1824,7 @@ async function handleReview(request, db, user, submissionId, action) {
     ]);
 
     if(Number(result?.[3]?.meta?.changes||0)<1) {
-      return redirect("/?view=client&err="+enc("Esse envio já foi revisado ou não pertence à sua missão."),request);
+      return redirect("/?view=client&err="+enc("Esse envio já foi revisado ou não pertence à sua tarefa."),request);
     }
     return redirect("/?view=client&msg="+enc("Trabalho rejeitado."),request);
   }
@@ -1813,7 +1836,7 @@ async function handleReview(request, db, user, submissionId, action) {
   const result=await db.batch([
     db.prepare(`
       INSERT OR IGNORE INTO nexus_wallet_ledger(user_id,amount,type,source_ref,description)
-      SELECT s.worker_id,m.reward,'mission_reward',?,('Missão aprovada: '||substr(m.title,1,100))
+      SELECT s.worker_id,m.reward,'mission_reward',?,('Tarefa aprovada: '||substr(m.title,1,100))
       FROM nexus_submissions s JOIN nexus_missions m ON m.id=s.mission_id
       WHERE s.id=? AND s.status='submitted' AND m.client_id=?
         AND m.reserved_remaining>=ROUND(m.reward*(1+m.fee_rate),2)
@@ -1875,11 +1898,11 @@ async function handleReview(request, db, user, submissionId, action) {
 async function handleMissionStatus(request, db, user, missionId, status) {
   if(!canClient(user)) return redirect("/?view=client&err="+enc("Perfil sem acesso."),request);
   if(status==="closed") {
-    const ok=await closeMissionFunds(db,missionId,user.id,"Missão fechada pelo contratante");
-    return redirect("/?view=client&"+(ok?"msg="+enc("Missão fechada e saldo não utilizado liberado."):"err="+enc("Missão não encontrada.")),request);
+    const ok=await closeMissionFunds(db,missionId,user.id,"Tarefa fechada pelo contratante");
+    return redirect("/?view=client&"+(ok?"msg="+enc("Tarefa fechada e saldo não utilizado liberado."):"err="+enc("Tarefa não encontrada.")),request);
   }
   const r=await reopenMissionFunds(db,missionId,user.id);
-  return redirect("/?view=client&"+(r.ok?"msg="+enc("Missão reaberta e saldo novamente reservado."):"err="+enc(r.message)),request);
+  return redirect("/?view=client&"+(r.ok?"msg="+enc("Tarefa reaberta e saldo novamente reservado."):"err="+enc(r.message)),request);
 }
 
 async function handleCreatePixDeposit(request, env, user) {
@@ -2073,10 +2096,10 @@ async function handleAdminUserAction(request, env, user, targetId, action) {
 async function handleAdminMissionClose(request, db, user, missionId) {
   if(!user.is_admin) return redirect("/?err="+enc("Acesso administrativo necessário."),request);
   const m=await db.prepare("SELECT client_id FROM nexus_missions WHERE id=? LIMIT 1").bind(missionId).first();
-  if(!m) return redirect("/?view=admin&err="+enc("Missão não encontrada."),request);
-  await closeMissionFunds(db,missionId,Number(m.client_id),"Missão encerrada pelo administrador");
+  if(!m) return redirect("/?view=admin&err="+enc("Tarefa não encontrada."),request);
+  await closeMissionFunds(db,missionId,Number(m.client_id),"Tarefa encerrada pelo administrador");
   await auditSecurity(db,request,user.id,"admin_close_mission",String(missionId));
-  return redirect("/?view=admin&msg="+enc("Missão encerrada pelo administrador."),request);
+  return redirect("/?view=admin&msg="+enc("Tarefa encerrada pelo administrador."),request);
 }
 
 async function renderDashboard(request, env, user, url) {
@@ -2173,7 +2196,7 @@ function renderHome(user, feed, wallet, copy=PUBLIC_CONTENT_DEFAULTS) {
             <b>${brl(wallet.pending)}</b>
           </div>
           <div class="hero-mini-card">
-            <small>Missões encontradas</small>
+            <small>Tarefas disponíveis</small>
             <b>${feed.total}</b>
           </div>
         </div>
@@ -2197,12 +2220,12 @@ function renderHome(user, feed, wallet, copy=PUBLIC_CONTENT_DEFAULTS) {
         <div class="bar"><i style="width:${progress}%"></i></div>
         <div class="goalfoot">
           <div class="goaltext">${wallet.today>=DAILY_GOAL?"Meta atingida hoje.":`${brl(remaining)} para chegar à meta visual.`}</div>
-          <div class="goalhint">${feed.total ? `${feed.total} missão(ões) disponível(is)` : "Aguardando novas missões"}</div>
+          <div class="goalhint">${feed.total ? `${feed.total} ${feed.total===1?"tarefa disponível":"tarefas disponíveis"}` : "Aguardando novas tarefas"}</div>
         </div>
       </section>
     </section>
 
-    <div class="notice notice-home">A meta de R$ 50/dia não é garantia de renda. Ela depende de missões disponíveis e aprovação.</div>
+    <div class="notice notice-home">A meta de R$ 50/dia não é garantia de renda. Ela depende de tarefas disponíveis e aprovação.</div>
 
     <form class="filter-panel filter-panel-hero" method="get">
       <input type="hidden" name="view" value="home">
@@ -2220,7 +2243,7 @@ function renderHome(user, feed, wallet, copy=PUBLIC_CONTENT_DEFAULTS) {
       </div>
 
       <div class="filter-search filter-search-wide">
-        <label>Buscar missão</label>
+        <label>Buscar tarefa por nome ou tipo</label>
         <input class="field search-field" name="q" value="${esc(o.q)}" placeholder="Ex.: landing page, pesquisa, Instagram">
       </div>
 
@@ -2256,13 +2279,13 @@ function renderHome(user, feed, wallet, copy=PUBLIC_CONTENT_DEFAULTS) {
     </form>
 
     <div class="toolbar toolbar-home">
-      <div><b>${feed.total}</b> missões encontradas</div>
+      <div><b>${feed.total}</b> tarefas encontradas</div>
       <div class="toolbar-note">${o.q ? `Busca: "${esc(o.q)}"` : "Veja abaixo as oportunidades disponíveis"}</div>
     </div>
 
     ${o.mode==="list"
-      ? `<div class="mission-list">${feed.missions.length?feed.missions.map(m=>missionListRow(m,user)).join(""):`<div class="empty">Nenhuma missão disponível com esses filtros.</div>`}</div>`
-      : `<div class="grid">${feed.missions.length?feed.missions.map(m=>missionCard(m,user)).join(""):`<div class="empty">Nenhuma missão disponível com esses filtros.</div>`}</div>`
+      ? `<div class="mission-list">${feed.missions.length?feed.missions.map(m=>missionListRow(m,user)).join(""):`<div class="empty">Nenhuma tarefa disponível com esses filtros.</div>`}</div>`
+      : `<div class="grid">${feed.missions.length?feed.missions.map(m=>missionCard(m,user)).join(""):`<div class="empty">Nenhuma tarefa disponível com esses filtros.</div>`}</div>`
     }
 
     ${renderPagination(feed)}
@@ -2279,20 +2302,20 @@ function renderClientHome(user, missions, subs, wallet, financeConfig={}, copy=P
     <div class="metric-grid">
       ${metric("Saldo disponível",brl(wallet.available))}
       ${metric("Saldo reservado",brl(wallet.reserved))}
-      ${metric("Missões abertas",openCount)}
+      ${metric("Tarefas abertas",openCount)}
       ${metric("Aguardando aprovação",waiting)}
     </div>
 
     <div class="row action-row">
-      <a class="btn primary wide linkbtn nomargin" href="/?view=create">＋ Publicar missão</a>
+      <a class="btn primary wide linkbtn nomargin" href="/?view=create">＋ Publicar tarefa</a>
       <a class="btn secondary wide linkbtn nomargin" href="/?view=profile">${financeConfig.asaasReady?"⚡ Adicionar saldo via PIX":"Carteira"}</a>
     </div>
 
     ${financeConfig.asaasReady?`<div class="notice finance-note">Adicione saldo via PIX pela sua carteira. O crédito é liberado após a confirmação do pagamento.</div>`:""}
 
-    <div class="section-title"><h2>Suas missões recentes</h2><span>${missions.length}</span></div>
+    <div class="section-title"><h2>Suas tarefas recentes</h2><span>${missions.length}</span></div>
     <div class="grid">
-      ${missions.length?missions.slice(0,6).map(m=>clientMissionCard(m)).join(""):`<div class="empty">Você ainda não publicou nenhuma missão.</div>`}
+      ${missions.length?missions.slice(0,6).map(m=>clientMissionCard(m)).join(""):`<div class="empty">Você ainda não publicou nenhuma tarefa.</div>`}
     </div>
   `;
 }
@@ -2313,17 +2336,17 @@ function missionCard(m, user) {
           <span>📅 ${esc(deadlineLabel(m.deadline))}</span>
         </div>
         <div class="contractor-line">👤 ${esc(m.client_name||"Contratante")} · ${Number(m.client_approved||0)} trabalhos aprovados</div>
-        <form method="post" action="/missions/${m.id}/start"><button class="btn primary wide">Fazer missão · você recebe ${brl(m.reward)}</button></form>
+        <form method="post" action="/missions/${m.id}/start"><button class="btn primary wide">Aceitar tarefa · você recebe ${brl(m.reward)}</button></form>
       </div>
     </article>`;
 }
 
 function renderMine(user, mine, wallet) {
-  if(!canWorker(user)) return denied("Seu perfil não está habilitado para executar missões.");
+  if(!canWorker(user)) return denied("Seu perfil não está habilitado para executar tarefas.");
   const f=mine.filter;
   const tab=(value,label)=>`<a class="${f===value?"active":""}" href="/?view=mine&status=${value}">${label}</a>`;
   return `
-    <section class="hero"><h1>Minhas missões</h1><p class="muted">Acompanhe cada etapa sem misturar tarefas em andamento e concluídas.</p></section>
+    <section class="hero"><h1>Minhas tarefas</h1><p class="muted">Acompanhe cada etapa sem misturar tarefas em andamento e concluídas.</p></section>
 
     <div class="metric-grid">
       ${metric("Disponível",brl(wallet.available))}
@@ -2358,12 +2381,12 @@ function renderMine(user, mine, wallet) {
               ${s.proof_image?`<img class="proof" src="${s.proof_image}" alt="">`:""}
             `}
           </div>
-        </article>`).join(""):`<div class="empty">Nenhuma missão nesta aba.</div>`}
+        </article>`).join(""):`<div class="empty">Nenhuma tarefa nesta aba.</div>`}
     </div>`;
 }
 
 function renderCreate(user, wallet, financeConfig={}, copy=PUBLIC_CONTENT_DEFAULTS) {
-  if(!canClient(user)) return denied("Seu perfil foi criado apenas para realizar missões.");
+  if(!canClient(user)) return denied("Seu perfil foi criado apenas para realizar tarefas.");
   const defaultDeadline=datePlusDays(7);
   return `
     <section class="hero"><h1>${esc(copy.create_hero_title)}</h1><p class="muted">${esc(copy.create_hero_subtitle)}</p></section>
@@ -2380,7 +2403,7 @@ function renderCreate(user, wallet, financeConfig={}, copy=PUBLIC_CONTENT_DEFAUL
       <input type="hidden" name="form_token" value="${randomHex(16)}">
       <label>Título</label><input class="field" name="title" required minlength="5" maxlength="100" placeholder="Ex.: Teste minha página e diga o que ficou confuso">
       <label>Categoria</label><select class="field" name="category"><option>Pesquisa</option><option>Teste</option><option>Opinião</option><option>Levantamento</option></select>
-      <label>Descrição curta</label><textarea class="field" name="description" required minlength="10" maxlength="500" placeholder="Explique o objetivo da missão."></textarea>
+      <label>Descrição curta</label><textarea class="field" name="description" required minlength="10" maxlength="500" placeholder="Explique o objetivo da tarefa."></textarea>
       <label>Instruções</label><textarea class="field" name="instructions" required minlength="10" maxlength="1500" placeholder="Passo a passo do que a pessoa deve fazer."></textarea>
 
       <div class="form-grid">
@@ -2393,8 +2416,8 @@ function renderCreate(user, wallet, financeConfig={}, copy=PUBLIC_CONTENT_DEFAUL
       <label>Imagem do card (opcional)</label><input class="field image-input" type="file" accept="image/jpeg,image/png,image/webp">
       <input type="hidden" name="image_data" class="image-data"><img class="preview" alt="">
 
-      <div class="final-cost budget">Custo final da missão: ${brl(finalMissionCost(2.50,10))}</div>
-      <div class="notice">O trabalhador vê somente a recompensa líquida. Ao publicar, o custo final é reservado imediatamente para impedir missões sem cobertura.</div>
+      <div class="final-cost budget">Custo total da tarefa: ${brl(finalMissionCost(2.50,10))}</div>
+      <div class="notice">O trabalhador vê somente a recompensa líquida. Ao publicar, o custo final é reservado imediatamente para impedir tarefas sem cobertura.</div>
       <button class="btn primary wide">Publicar e reservar saldo</button>
     </form>`;
 }
@@ -2402,7 +2425,7 @@ function renderCreate(user, wallet, financeConfig={}, copy=PUBLIC_CONTENT_DEFAUL
 function renderClient(user, missions, subs, wallet) {
   if(!canClient(user)) return denied("Seu perfil não possui acesso de contratante.");
   return `
-    <section class="hero"><h1>Painel do contratante</h1><p class="muted">Gerencie missões, prazos, reservas e aprovações.</p></section>
+    <section class="hero"><h1>Painel do contratante</h1><p class="muted">Gerencie tarefas, prazos, reservas e aprovações.</p></section>
 
     <div class="metric-grid">
       ${metric("Saldo disponível",brl(wallet.available))}
@@ -2411,8 +2434,8 @@ function renderClient(user, missions, subs, wallet) {
       ${metric("Pendentes",subs.filter(s=>s.status==="submitted").length)}
     </div>
 
-    <div class="section-title"><h2>Suas missões</h2><span>${missions.length}</span></div>
-    <div class="grid">${missions.length?missions.map(m=>clientMissionCard(m)).join(""):`<div class="empty">Você ainda não publicou nenhuma missão.</div>`}</div>
+    <div class="section-title"><h2>Suas tarefas</h2><span>${missions.length}</span></div>
+    <div class="grid">${missions.length?missions.map(m=>clientMissionCard(m)).join(""):`<div class="empty">Você ainda não publicou nenhuma tarefa.</div>`}</div>
 
     <div class="section-title spaced"><h2>Trabalhos recebidos</h2><span>${subs.length}</span></div>
     <div class="grid">
@@ -2549,7 +2572,7 @@ function renderProfile(user, workerWallet, clientWallet, reputation, withdrawals
     <div class="section-title spaced"><h2>Reputação</h2></div>
     <div class="panel reputation">
       ${reputation.worker?`<p><b>Trabalhador:</b> ${reputation.worker.approved} aprovadas · ${reputation.worker.rejected} rejeitadas · ${reputation.worker.rate}% de aprovação</p>`:""}
-      ${reputation.client?`<p><b>Contratante:</b> ${reputation.client.missions} missões · ${reputation.client.approved} trabalhos aprovados · ${reputation.client.rate}% de aprovação</p>`:""}
+      ${reputation.client?`<p><b>Contratante:</b> ${reputation.client.missions} tarefas · ${reputation.client.approved} trabalhos aprovados · ${reputation.client.rate}% de aprovação</p>`:""}
     </div>
 
     ${user.is_admin?`<a class="btn secondary linkbtn admin-link" href="/?view=admin">Abrir painel Admin</a>`:""}
@@ -2560,11 +2583,11 @@ function renderProfile(user, workerWallet, clientWallet, reputation, withdrawals
 function renderNav(view, user) {
   const items=[];
   if(user.role==="worker") {
-    items.push(["home","⌂","Missões"],["mine","✓","Minhas"],["profile","●","Perfil"]);
+    items.push(["home","⌂","Tarefas"],["mine","✓","Minhas"],["profile","●","Perfil"]);
   } else if(user.role==="client") {
     items.push(["home","⌂","Início"],["create","＋","Publicar"],["client","▣","Trabalhos"],["profile","●","Perfil"]);
   } else {
-    items.push(["home","⌂","Missões"],["mine","✓","Minhas"],["create","＋","Publicar"],["client","▣","Contratante"],["profile","●","Perfil"]);
+    items.push(["home","⌂","Tarefas"],["mine","✓","Minhas"],["create","＋","Publicar"],["client","▣","Contratante"],["profile","●","Perfil"]);
   }
   if(user.is_admin) items.push(["admin","⚙","Admin"]);
   return `<nav class="nav" style="--nav-count:${items.length}">${items.map(([id,icon,label])=>`<a class="${view===id?"active":""}" href="/?view=${id}"><strong>${icon}</strong>${label}</a>`).join("")}</nav>`;
@@ -2616,7 +2639,7 @@ function clientMissionCard(m) {
       <div class="cost-line"><span>Custo final</span><b>${brl(m.final_cost)}</b></div>
       <div class="cost-line"><span>Ainda reservado</span><b>${brl(m.reserved_remaining)}</b></div>
       <form method="post" action="/missions/${m.id}/${m.status==="open"?"close":"open"}">
-        <button class="btn secondary wide">${m.status==="open"?"Fechar missão":"Reabrir missão"}</button>
+        <button class="btn secondary wide">${m.status==="open"?"Encerrar tarefa":"Reabrir tarefa"}</button>
       </form>
     </div></article>`;
 }
@@ -2631,11 +2654,11 @@ function renderClientHistory(entries) {
 
 function renderAdmin(user,data,financeConfig={},publicCopy=PUBLIC_CONTENT_DEFAULTS) {
   return `
-    <section class="hero"><h1>Admin Bern Nexus</h1><p class="muted">Controle usuários, missões, PIX, saques e integridade financeira.</p></section>
+    <section class="hero"><h1>Admin Bern Nexus</h1><p class="muted">Controle usuários, tarefas, PIX, saques e integridade financeira.</p></section>
 
     <div class="metric-grid admin-metrics">
       ${metric("Usuários",Number(data.stats.users||0))}
-      ${metric("Missões abertas",Number(data.stats.open_missions||0))}
+      ${metric("Tarefas abertas",Number(data.stats.open_missions||0))}
       ${metric("Revisões pendentes",Number(data.stats.pending_reviews||0))}
       ${metric("Saques pendentes",Number(data.stats.pending_withdrawals||0))}
       ${metric("PIX pendentes",Number(data.stats.pending_pix||0))}
@@ -2767,8 +2790,8 @@ function renderAdmin(user,data,financeConfig={},publicCopy=PUBLIC_CONTENT_DEFAUL
       </tr>`).join("")}
     </tbody></table></div>
 
-    <div class="section-title spaced"><h2>Missões recentes</h2><span>${data.missions.length}</span></div>
-    <div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Missão</th><th>Contratante</th><th>Valor</th><th>Prazo</th><th>Status</th><th></th></tr></thead><tbody>
+    <div class="section-title spaced"><h2>Tarefas recentes</h2><span>${data.missions.length}</span></div>
+    <div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Tarefa</th><th>Contratante</th><th>Valor</th><th>Prazo</th><th>Status</th><th></th></tr></thead><tbody>
       ${data.missions.map(m=>`<tr><td><b>#${m.id} ${esc(m.title)}</b></td><td>${esc(m.client_name||"—")}</td><td>${brl(m.final_cost)}</td><td>${esc(deadlineLabel(m.deadline))}</td><td>${esc(m.status)}</td><td>${m.status==="open"?`<form method="post" action="/admin/missions/${m.id}/close"><button class="mini-btn danger-mini">Encerrar</button></form>`:""}</td></tr>`).join("")}
     </tbody></table></div>`;
 }
@@ -2786,7 +2809,7 @@ async function renderLanding(db) {
   const copy=await getPublicContent(db);
   const lion = `<img class="lion-logo-img" src="${BRAND_LOGO_DATA}" alt="Leão Bern Nexus">`;
 
-  return page("BERN NEXUS — Missões para renda extra e tarefas para negócios", `
+  return page("BERN NEXUS — Tarefas pagas para pessoas e ajuda real para negócios", `
     <div class="lp-cinema">
       <header class="cinema-header">
         <a class="cinema-brand" href="/">
@@ -2830,6 +2853,23 @@ async function renderLanding(db) {
               <span>✓ Você escolhe o que quer fazer</span>
               <span>✓ Sem promessa de renda garantida</span>
             </div>
+
+            <div class="hero-explain-box">
+              <div class="hero-explain-title">
+                <span>EM PORTUGUÊS CLARO</span>
+                <b>O que é uma tarefa paga?</b>
+              </div>
+              <p>É um pedido simples publicado por uma pessoa ou empresa. Você lê as instruções, faz o que foi pedido e envia o resultado pela plataforma.</p>
+              <div class="hero-explain-flow">
+                <span><i>1</i> Escolha</span>
+                <b>→</b>
+                <span><i>2</i> Faça</span>
+                <b>→</b>
+                <span><i>3</i> Envie</span>
+                <b>→</b>
+                <span><i>4</i> Receba se aprovado</span>
+              </div>
+            </div>
           </div>
 
           <div class="float-stack reveal">
@@ -2846,7 +2886,7 @@ async function renderLanding(db) {
                 <span>🎯 12 vagas</span>
                 <span>📅 2 dias</span>
               </div>
-              <div class="float-action">Fazer missão</div>
+              <div class="float-action">Fazer tarefa</div>
             </article>
 
             <article class="float-card float-card-mini float-card-top">
@@ -2858,13 +2898,62 @@ async function renderLanding(db) {
 
             <article class="float-card float-card-mini float-card-bottom">
               <span class="demo-label demo-label-dark">EXEMPLO</span>
-              <small>Missões disponíveis</small>
+              <small>Tarefas disponíveis</small>
               <b>7 agora</b>
               <span>Escolha a que faz sentido para você</span>
             </article>
           </div>
 
           <a class="cinema-scroll" href="#negocio">Role para descobrir ↓</a>
+        </section>
+
+
+        <section class="clarity-section">
+          <div class="clarity-heading reveal">
+            <span class="cinema-eyebrow cinema-eyebrow-dark">ENTENDA EM 10 SEGUNDOS</span>
+            <h2>O Bern Nexus conecta quem tem uma tarefa com quem quer receber para fazê-la.</h2>
+            <p>Você não precisa entender nenhum termo novo. Existem só dois caminhos:</p>
+          </div>
+
+          <div class="clarity-grid">
+            <article class="clarity-card clarity-worker reveal">
+              <div class="clarity-card-top">
+                <span class="clarity-icon">💰</span>
+                <div><small>QUERO RENDA EXTRA</small><h3>Eu faço uma tarefa.</h3></div>
+              </div>
+              <div class="clarity-example">
+                <small>Exemplo de tarefa</small>
+                <b>“Entre nesta página e diga o que ficou confuso.”</b>
+                <span>Recompensa: <strong>R$ 5,00</strong> · Tempo estimado: 8 min</span>
+              </div>
+              <ol>
+                <li>Escolha uma tarefa disponível.</li>
+                <li>Leia e siga as instruções.</li>
+                <li>Envie sua resposta ou comprovante.</li>
+                <li>Se aprovado, a recompensa vai para sua carteira.</li>
+              </ol>
+              <a href="/register?role=worker">Quero ver tarefas →</a>
+            </article>
+
+            <article class="clarity-card clarity-client reveal">
+              <div class="clarity-card-top">
+                <span class="clarity-icon">👥</span>
+                <div><small>PRECISO DE AJUDA</small><h3>Eu publico uma tarefa.</h3></div>
+              </div>
+              <div class="clarity-example">
+                <small>Exemplo</small>
+                <b>“Quero 20 pessoas dizendo o que ficou confuso na minha página.”</b>
+                <span>Você escolhe quantidade, recompensa e prazo.</span>
+              </div>
+              <ol>
+                <li>Explique o que as pessoas devem fazer.</li>
+                <li>Escolha quantas pessoas precisa.</li>
+                <li>Receba os trabalhos no painel.</li>
+                <li>Aprove os resultados que seguirem as instruções.</li>
+              </ol>
+              <a href="/register?role=client">Quero publicar uma tarefa →</a>
+            </article>
+          </div>
         </section>
 
         <section id="negocio" class="cinema-screen cinema-screen-light cinema-business">
@@ -2890,7 +2979,7 @@ async function renderLanding(db) {
             <article class="biz-float biz-float-main">
               <div class="biz-title-row">
                 <div>
-                  <small>Sua missão</small>
+                  <small>Sua tarefa</small>
                   <h3>Quero 20 opiniões sobre minha página</h3>
                 </div>
                 <span>ABERTA</span>
@@ -2923,7 +3012,7 @@ async function renderLanding(db) {
         <section id="como" class="cinema-screen cinema-screen-black cinema-how">
           <div class="cinema-section-title reveal">
             <span class="cinema-eyebrow">SEM COMPLICAÇÃO</span>
-            <h2>Quatro passos. Um fluxo simples.</h2>
+            <h2>Para quem faz tarefas: quatro passos e pronto.</h2>
           </div>
 
           <div class="cinema-steps">
@@ -2931,32 +3020,32 @@ async function renderLanding(db) {
               <span class="step-number">01</span>
               <div class="step-icon">📝</div>
               <h3>Entre</h3>
-              <p>Crie sua conta e escolha se quer realizar missões ou publicar tarefas.</p>
+              <p>Crie seu perfil de trabalhador e abra a lista de tarefas disponíveis.</p>
             </article>
             <article class="cinema-step reveal">
               <span class="step-number">02</span>
               <div class="step-icon">🎯</div>
               <h3>Escolha</h3>
-              <p>Trabalhadores escolhem missões. Contratantes definem objetivo, vagas e prazo.</p>
+              <p>Veja recompensa, prazo e instruções e escolha a tarefa que quer fazer.</p>
             </article>
             <article class="cinema-step reveal">
               <span class="step-number">03</span>
               <div class="step-icon">⚡</div>
               <h3>Execute</h3>
-              <p>A tarefa é realizada e o resultado é enviado diretamente pelo painel.</p>
+              <p>Faça o que foi pedido e envie a resposta ou comprovante pelo painel.</p>
             </article>
             <article class="cinema-step reveal">
               <span class="step-number">04</span>
               <div class="step-icon">📊</div>
               <h3>Acompanhe</h3>
-              <p>Aprovações, status, reputação e carteira ficam organizados no Nexus.</p>
+              <p>Acompanhe a análise. Quando aprovado, o valor aparece na sua carteira.</p>
             </article>
           </div>
 
           <div class="cinema-mid-cta reveal">
             <div>
               <small>Tem alguns minutos livres?</small>
-              <b>Veja se existe uma missão para você.</b>
+              <b>Veja as tarefas disponíveis e escolha uma.</b>
             </div>
             <a href="/register?role=worker">Começar agora →</a>
           </div>
@@ -2964,38 +3053,41 @@ async function renderLanding(db) {
 
         <section class="cinema-screen cinema-screen-soft cinema-categories">
           <div class="cinema-section-title reveal">
-            <span class="cinema-eyebrow cinema-eyebrow-dark">TAREFAS HUMANAS, NÃO BOTS</span>
-            <h2>O que pode virar missão?</h2>
+            <span class="cinema-eyebrow cinema-eyebrow-dark">EXEMPLOS REAIS DE USO</span>
+            <h2>Que tipo de tarefa alguém pode publicar?</h2>
+            <p class="category-intro">Pedidos pequenos, claros e que precisam de atenção humana.</p>
           </div>
 
-          <div class="cinema-card-track">
-            <article class="category-card reveal">
-              <span class="category-number">01</span>
+          <div class="usecase-grid">
+            <article class="usecase-card reveal">
+              <div class="category-icon">🖥️</div>
+              <span>LANDING PAGE</span>
+              <h3>“Quero 20 pessoas dizendo o que ficou confuso na minha página.”</h3>
+              <p>Teste privado de clareza e experiência.</p>
+            </article>
+            <article class="usecase-card reveal">
+              <div class="category-icon">🎨</div>
+              <span>CRIATIVO</span>
+              <h3>“Qual dessas duas artes comunica melhor a oferta e por quê?”</h3>
+              <p>Comparação de peças e percepção da mensagem.</p>
+            </article>
+            <article class="usecase-card reveal">
               <div class="category-icon">🔎</div>
-              <h3>Pesquisa</h3>
-              <p>Levante preços, referências, contatos públicos ou informações específicas.</p>
-              <div class="category-chip">Busca orientada</div>
+              <span>PESQUISA</span>
+              <h3>“Levante preços públicos de 20 concorrentes.”</h3>
+              <p>Pesquisa orientada seguindo critérios definidos.</p>
             </article>
-            <article class="category-card reveal">
-              <span class="category-number">02</span>
+            <article class="usecase-card reveal">
               <div class="category-icon">🧪</div>
-              <h3>Teste</h3>
-              <p>Peça avaliações privadas de páginas, fluxos, anúncios ou experiências.</p>
-              <div class="category-chip">Feedback prático</div>
+              <span>EXPERIÊNCIA</span>
+              <h3>“Teste este fluxo e diga em qual etapa você ficou em dúvida.”</h3>
+              <p>Feedback privado sobre uma experiência ou processo.</p>
             </article>
-            <article class="category-card reveal">
-              <span class="category-number">03</span>
+            <article class="usecase-card reveal">
               <div class="category-icon">💬</div>
-              <h3>Opinião</h3>
-              <p>Compare ideias, nomes, criativos ou propostas e receba percepções reais.</p>
-              <div class="category-chip">Visão humana</div>
-            </article>
-            <article class="category-card reveal">
-              <span class="category-number">04</span>
-              <div class="category-icon">📋</div>
-              <h3>Levantamento</h3>
-              <p>Organize pequenas listas ou colete dados seguindo instruções claras.</p>
-              <div class="category-chip">Execução guiada</div>
+              <span>OPINIÃO</span>
+              <h3>“Qual nome de produto transmite melhor a proposta?”</h3>
+              <p>Opinião estruturada para apoiar uma decisão.</p>
             </article>
           </div>
         </section>
@@ -3015,7 +3107,7 @@ async function renderLanding(db) {
                   </div>
                   <div class="monitor-text">
                     <b>Home office + microtarefas</b>
-                    <small>Escolha missões, envie respostas e acompanhe seu saldo sem complicação.</small>
+                    <small>Escolha tarefas, envie respostas e acompanhe seu saldo sem complicação.</small>
                     <div class="monitor-bullets">
                       <span>✅ tarefas rápidas</span>
                       <span>💰 recompensa visível</span>
@@ -3048,14 +3140,14 @@ async function renderLanding(db) {
             <p>${esc(copy.lp_final_subtitle)}</p>
 
             <div class="final-adv-grid">
-              <div class="final-adv-item"><strong>Missões rápidas</strong><span>Pesquisa, teste, opinião e mais.</span></div>
+              <div class="final-adv-item"><strong>Tarefas rápidas</strong><span>Pesquisa, teste, opinião e mais.</span></div>
               <div class="final-adv-item"><strong>Fluxo simples</strong><span>Cadastro, execução e acompanhamento em poucos passos.</span></div>
               <div class="final-adv-item"><strong>Dois perfis</strong><span>Trabalhador para renda extra e contratante para negócios.</span></div>
             </div>
 
             <div class="cinema-actions">
               <a class="cinema-btn cinema-btn-gold" href="/register?role=worker">
-                <strong>Quero fazer missões</strong>
+                <strong>Quero fazer tarefas</strong>
                 <span>Criar conta de trabalhador</span>
               </a>
               <a class="cinema-btn cinema-btn-ghost" href="/register?role=client">
@@ -3069,12 +3161,12 @@ async function renderLanding(db) {
 
       <footer class="cinema-footer">
         <div class="cinema-footer-brand"><img src="${BRAND_LOGO_DATA}" alt=""><span>BERN <b>NEXUS</b></span></div>
-        <p>Pequenas missões. Pessoas reais. Resultados claros.</p>
+        <p>Tarefas simples. Pessoas reais. Recompensas e resultados claros.</p>
         <nav><a href="/termos">Termos</a><a href="/privacidade">Privacidade</a><a href="/suporte">Suporte</a><a href="/login">Entrar</a></nav>
       </footer>
 
       <div class="cinema-mobile-cta">
-        <a href="/register?role=worker">Fazer missões</a>
+        <a href="/register?role=worker">Ver tarefas</a>
         <a href="/register?role=client">Publicar tarefa</a>
       </div>
     </div>
@@ -3109,8 +3201,8 @@ function renderAuth(mode, url) {
           ${register ? `
             <label>Como quer usar o Nexus?</label>
             <select class="field" name="role">
-              <option value="worker" ${requestedRole==="worker"?"selected":""}>Quero ganhar fazendo missões</option>
-              <option value="client" ${requestedRole==="client"?"selected":""}>Quero publicar missões</option>
+              <option value="worker" ${requestedRole==="worker"?"selected":""}>Quero receber fazendo tarefas</option>
+              <option value="client" ${requestedRole==="client"?"selected":""}>Quero publicar tarefas</option>
               <option value="both" ${requestedRole==="both"?"selected":""}>Quero fazer os dois</option>
             </select>
             <label class="legal-check auth-legal-check">
@@ -5147,6 +5239,116 @@ form{min-width:0}
   .legal-accept-shell{display:block;padding-top:22px}
   .demo-stage-label{position:relative;left:auto;top:auto;margin-bottom:8px}
 }
+
+
+/* === CLAREZA DE PROPOSTA v0.5.6 === */
+.hero-explain-box{
+  margin-top:22px;
+  max-width:680px;
+  padding:16px;
+  border-radius:18px;
+  background:rgba(255,255,255,.07);
+  border:1px solid rgba(224,181,90,.24);
+  backdrop-filter:blur(10px)
+}
+.hero-explain-title{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.hero-explain-title span{
+  padding:5px 8px;border-radius:999px;background:#BC913C;color:#0A0A0A;
+  font-size:8px;font-weight:950;letter-spacing:.7px
+}
+.hero-explain-title b{font-size:15px}
+.hero-explain-box>p{margin:10px 0 13px;color:#D0D0D0;font-size:12px;line-height:1.55}
+.hero-explain-flow{
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  color:#E8E8E8;font-size:10px;font-weight:800
+}
+.hero-explain-flow span{display:inline-flex;align-items:center;gap:5px}
+.hero-explain-flow i{
+  width:20px;height:20px;display:grid;place-items:center;border-radius:50%;
+  background:#E0B55A;color:#0A0A0A;font-style:normal;font-size:9px;font-weight:950
+}
+.hero-explain-flow>b{color:#86672A}
+
+.clarity-section{
+  position:relative;
+  width:100%;
+  padding:90px max(20px,calc((100vw - 1180px)/2));
+  background:#F7F6F1;color:#0A0A0A;
+  border-bottom:1px solid #E3E0DA
+}
+.clarity-heading{max-width:920px;margin-bottom:30px}
+.clarity-heading h2{
+  margin:0;font-size:clamp(38px,5vw,64px);line-height:1.02;letter-spacing:-2.5px
+}
+.clarity-heading p{font-size:16px;color:#716E69}
+.clarity-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.clarity-card{
+  min-width:0;padding:25px;border-radius:24px;border:1px solid #DAD7D2;
+  box-shadow:0 18px 48px rgba(10,10,10,.06)
+}
+.clarity-worker{background:#FFFFFF}
+.clarity-client{background:#0A0A0A;color:#FFFFFF;border-color:#0A0A0A}
+.clarity-card-top{display:flex;align-items:center;gap:13px}
+.clarity-icon{
+  width:54px;height:54px;display:grid;place-items:center;border-radius:15px;
+  background:#F3E5BC;font-size:26px;flex:0 0 auto
+}
+.clarity-client .clarity-icon{background:#292416}
+.clarity-card-top small{font-size:9px;font-weight:950;letter-spacing:1px;color:#86672A}
+.clarity-client .clarity-card-top small{color:#E0B55A}
+.clarity-card h3{margin:4px 0 0;font-size:26px}
+.clarity-example{
+  margin:22px 0;padding:16px;border-radius:16px;background:#F7F6F1;border:1px solid #E1DDD4
+}
+.clarity-client .clarity-example{background:#171717;border-color:#303030}
+.clarity-example small,.clarity-example b,.clarity-example span{display:block}
+.clarity-example small{color:#716E69;font-size:9px;text-transform:uppercase;font-weight:900}
+.clarity-client .clarity-example small{color:#9F9F9F}
+.clarity-example b{margin-top:7px;font-size:16px;line-height:1.4}
+.clarity-example span{margin-top:8px;color:#716E69;font-size:11px}
+.clarity-client .clarity-example span{color:#BBB9B6}
+.clarity-example strong{color:#86672A}
+.clarity-client .clarity-example strong{color:#E0B55A}
+.clarity-card ol{margin:0;padding-left:23px}
+.clarity-card li{padding:6px 0;font-size:13px;line-height:1.45;color:#57534C}
+.clarity-client li{color:#D0D0D0}
+.clarity-card>a{
+  display:inline-block;margin-top:18px;color:#86672A;text-decoration:none;font-weight:950
+}
+.clarity-client>a{color:#E0B55A}
+
+.category-intro{max-width:700px;color:#716E69;font-size:15px}
+.usecase-grid{
+  display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px;margin-top:38px
+}
+.usecase-card{
+  min-width:0;min-height:300px;padding:20px;border-radius:20px;background:#FFFFFF;
+  border:1px solid #DAD7D2;box-shadow:0 15px 40px rgba(10,10,10,.05);
+  display:flex;flex-direction:column;transition:transform .25s ease,box-shadow .25s ease
+}
+.usecase-card:hover{transform:translateY(-6px);box-shadow:0 24px 55px rgba(10,10,10,.09)}
+.usecase-card:nth-child(1),.usecase-card:nth-child(2){grid-column:span 3}
+.usecase-card:nth-child(3),.usecase-card:nth-child(4),.usecase-card:nth-child(5){grid-column:span 2}
+.usecase-card>span{margin-top:20px;color:#86672A;font-size:9px;font-weight:950;letter-spacing:1px}
+.usecase-card h3{font-size:19px;line-height:1.35;margin:12px 0 10px}
+.usecase-card p{margin-top:auto;color:#716E69;font-size:12px;line-height:1.5}
+
+@media(max-width:900px){
+  .clarity-grid{grid-template-columns:1fr}
+  .usecase-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .usecase-card:nth-child(n){grid-column:span 1}
+}
+@media(max-width:720px){
+  .hero-explain-box{max-width:none}
+  .hero-explain-flow{display:grid;grid-template-columns:auto 1fr;gap:8px}
+  .hero-explain-flow>b{display:none}
+  .clarity-section{padding:62px 14px}
+  .clarity-heading h2{font-size:clamp(34px,10vw,46px);letter-spacing:-1.5px}
+  .clarity-card{padding:19px;border-radius:18px}
+  .clarity-card h3{font-size:23px}
+  .usecase-grid{grid-template-columns:1fr}
+  .usecase-card{min-height:0}
+}
 </style>
 </head>
 <body>
@@ -5186,7 +5388,7 @@ ${body}
       if(budget){
         const porPessoa=Math.round(reward*1.20*100)/100;
         const total=Math.round(porPessoa*slots*100)/100;
-        budget.textContent="Custo final da missão: "+new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(total);
+        budget.textContent="Custo total da tarefa: "+new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(total);
       }
     });
   });
