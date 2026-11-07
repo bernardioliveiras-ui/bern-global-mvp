@@ -2473,22 +2473,26 @@ function renderLanding() {
 
           <div class="cinema-steps">
             <article class="cinema-step reveal">
-              <span>01</span>
+              <span class="step-number">01</span>
+              <div class="step-icon">📝</div>
               <h3>Entre</h3>
               <p>Crie sua conta e escolha se quer realizar missões ou publicar tarefas.</p>
             </article>
             <article class="cinema-step reveal">
-              <span>02</span>
+              <span class="step-number">02</span>
+              <div class="step-icon">🎯</div>
               <h3>Escolha</h3>
               <p>Trabalhadores escolhem missões. Contratantes definem objetivo, vagas e prazo.</p>
             </article>
             <article class="cinema-step reveal">
-              <span>03</span>
+              <span class="step-number">03</span>
+              <div class="step-icon">⚡</div>
               <h3>Execute</h3>
               <p>A tarefa é realizada e o resultado é enviado diretamente pelo painel.</p>
             </article>
             <article class="cinema-step reveal">
-              <span>04</span>
+              <span class="step-number">04</span>
+              <div class="step-icon">📊</div>
               <h3>Acompanhe</h3>
               <p>Aprovações, status, reputação e carteira ficam organizados no Nexus.</p>
             </article>
@@ -2550,10 +2554,18 @@ function renderLanding() {
                   <span></span><span></span><span></span>
                 </div>
                 <div class="monitor-content">
-                  <div class="person-emoji">🧑‍💻</div>
+                  <div class="workspace-visual">
+                    <div class="person-emoji">🧑</div>
+                    <div class="workspace-mini-laptop">💻</div>
+                  </div>
                   <div class="monitor-text">
                     <b>Home office + microtarefas</b>
                     <small>Escolha missões, envie respostas e acompanhe seu saldo sem complicação.</small>
+                    <div class="monitor-bullets">
+                      <span>✅ tarefas rápidas</span>
+                      <span>💰 recompensa visível</span>
+                      <span>📱 funciona no celular</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -4285,6 +4297,251 @@ form{min-width:0}
     width:100%;
     left:0;
     right:0;
+  }
+}
+
+
+/* === VISUAL / POSITIONING IMPROVEMENTS v0.5.3 === */
+
+/* Four steps: less empty, more visual. */
+.lp-cinema .cinema-step{
+  display:flex;
+  flex-direction:column;
+  justify-content:flex-start;
+  gap:0;
+  min-height:300px;
+}
+.lp-cinema .cinema-step .step-number{
+  font-size:10px;
+  color:#E0B55A;
+  font-weight:950;
+}
+.lp-cinema .step-icon{
+  width:66px;
+  height:66px;
+  margin-top:22px;
+  border-radius:18px;
+  display:grid;
+  place-items:center;
+  font-size:30px;
+  background:linear-gradient(145deg,rgba(188,145,60,.22),rgba(188,145,60,.08));
+  border:1px solid rgba(224,181,90,.22);
+  box-shadow:0 10px 28px rgba(0,0,0,.18);
+}
+.lp-cinema .cinema-step h3{
+  margin:26px 0 10px;
+}
+.lp-cinema .cinema-step p{
+  margin:0;
+  color:#C7C7C7;
+  line-height:1.6;
+  max-width:290px;
+}
+.lp-cinema .cinema-steps{
+  align-items:stretch;
+}
+.lp-cinema .cinema-steps .cinema-step{
+  height:100%;
+}
+
+/* Home office card better aligned */
+.lp-cinema .homeoffice-stage{
+  padding:12px;
+}
+.lp-cinema .homeoffice-main{
+  padding:16px;
+}
+.lp-cinema .homeoffice-monitor{
+  padding:18px;
+}
+.lp-cinema .monitor-content{
+  grid-template-columns:112px minmax(0,1fr);
+  gap:18px;
+  align-items:center;
+}
+.lp-cinema .workspace-visual{
+  position:relative;
+  width:112px;
+  height:112px;
+  border-radius:24px;
+  display:grid;
+  place-items:center;
+  background:linear-gradient(145deg,#BC913C,#86672A);
+  box-shadow:0 14px 34px rgba(188,145,60,.22);
+}
+.lp-cinema .person-emoji{
+  width:72px;
+  height:72px;
+  display:grid;
+  place-items:center;
+  border-radius:50%;
+  background:rgba(255,255,255,.16);
+  font-size:42px;
+}
+.lp-cinema .workspace-mini-laptop{
+  position:absolute;
+  right:-12px;
+  bottom:8px;
+  width:44px;
+  height:44px;
+  border-radius:12px;
+  display:grid;
+  place-items:center;
+  font-size:24px;
+  background:#1A1A1A;
+  border:1px solid rgba(255,255,255,.12);
+  box-shadow:0 10px 20px rgba(0,0,0,.25);
+}
+.lp-cinema .monitor-text b{
+  font-size:20px;
+  line-height:1.2;
+}
+.lp-cinema .monitor-text small{
+  display:block;
+  margin-top:8px;
+  line-height:1.58;
+  font-size:13px;
+}
+.lp-cinema .monitor-bullets{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  margin-top:14px;
+}
+.lp-cinema .monitor-bullets span{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:7px 10px;
+  border-radius:999px;
+  background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.08);
+  color:#D8D8D8;
+  font-size:11px;
+  font-weight:700;
+}
+
+/* Better size balance for the benefit cards */
+.lp-cinema .homeoffice-float{
+  min-height:92px;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+}
+.lp-cinema .homeoffice-float b{
+  max-width:22ch;
+}
+
+/* Keep the large heading under control on desktop */
+@media(min-width:1100px){
+  .lp-cinema .cinema-section-title h2{
+    max-width:980px;
+  }
+}
+
+/* Tablet */
+@media(max-width:900px){
+  .lp-cinema .monitor-content{
+    grid-template-columns:96px minmax(0,1fr);
+    gap:14px;
+  }
+  .lp-cinema .workspace-visual{
+    width:96px;
+    height:96px;
+  }
+  .lp-cinema .person-emoji{
+    width:64px;
+    height:64px;
+    font-size:36px;
+  }
+  .lp-cinema .workspace-mini-laptop{
+    width:38px;
+    height:38px;
+    font-size:20px;
+    right:-10px;
+    bottom:6px;
+  }
+}
+
+/* Mobile */
+@media(max-width:720px){
+  .lp-cinema .cinema-step{
+    min-height:0;
+    padding:20px;
+  }
+  .lp-cinema .step-icon{
+    width:58px;
+    height:58px;
+    font-size:28px;
+    margin-top:16px;
+  }
+  .lp-cinema .cinema-step h3{
+    margin-top:18px;
+  }
+
+  .lp-cinema .homeoffice-stage{
+    padding:0;
+  }
+  .lp-cinema .homeoffice-main{
+    padding:12px!important;
+    border-radius:22px;
+  }
+  .lp-cinema .homeoffice-monitor{
+    padding:14px;
+    border-radius:18px;
+  }
+  .lp-cinema .monitor-content{
+    grid-template-columns:1fr;
+    gap:14px;
+    align-items:flex-start;
+  }
+  .lp-cinema .workspace-visual{
+    width:92px;
+    height:92px;
+    margin:0 auto;
+  }
+  .lp-cinema .workspace-mini-laptop{
+    right:-8px;
+    bottom:4px;
+  }
+  .lp-cinema .monitor-text{
+    text-align:left;
+  }
+  .lp-cinema .monitor-text b{
+    font-size:18px;
+  }
+  .lp-cinema .monitor-bullets{
+    display:grid;
+    grid-template-columns:1fr;
+    gap:8px;
+  }
+  .lp-cinema .monitor-bullets span{
+    width:100%;
+    justify-content:flex-start;
+  }
+  .lp-cinema .homeoffice-float{
+    min-height:0;
+  }
+}
+
+/* Very small phones */
+@media(max-width:430px){
+  .lp-cinema .cinema-step{
+    padding:18px;
+  }
+  .lp-cinema .workspace-visual{
+    width:84px;
+    height:84px;
+  }
+  .lp-cinema .person-emoji{
+    width:58px;
+    height:58px;
+    font-size:32px;
+  }
+  .lp-cinema .workspace-mini-laptop{
+    width:34px;
+    height:34px;
+    font-size:18px;
   }
 }
 </style>
