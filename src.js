@@ -5,6 +5,8 @@ const PLATFORM_FEE_RATE = 0.20;
 const PAGE_SIZE = 20;
 const MAX_IMAGE_CHARS = 200000;
 const SESSION_DAYS = 30;
+const TERMS_VERSION = "2026-11-07";
+const PRIVACY_VERSION = "2026-11-07";
 
 const PUBLIC_CONTENT_DEFAULTS = {
   lp_hero_badge: "MISSÕES REAIS · RECOMPENSA CLARA",
@@ -69,6 +71,20 @@ export default {
 
       const user = await currentUser(request, env.DB);
 
+      // Páginas públicas de confiança e suporte.
+      if (request.method === "GET" && path === "/termos") {
+        return renderTermsPage();
+      }
+      if (request.method === "GET" && path === "/privacidade") {
+        return renderPrivacyPage();
+      }
+      if (request.method === "GET" && path === "/suporte") {
+        return renderSupportPage(url, user);
+      }
+      if (request.method === "POST" && path === "/suporte") {
+        return await handleSupportRequest(request, env.DB, user);
+      }
+
       if (request.method === "GET" && path === "/login") {
         if (user && !user.is_blocked) return redirect("/", request);
         return renderAuth("login", url);
@@ -104,6 +120,14 @@ export default {
             <p class="muted">Seu acesso foi bloqueado pelo administrador.</p>
             <form method="post" action="/logout"><button class="btn secondary wide">Sair</button></form>
           </div></div>`, 403);
+      }
+
+      if (request.method === "POST" && path === "/legal/accept") {
+        return await handleLegalAcceptance(request, env.DB, user);
+      }
+
+      if (!hasCurrentLegalAcceptance(user)) {
+        return renderLegalAcceptance(user);
       }
 
       if (request.method === "POST" && path === "/missions/create") {
@@ -164,6 +188,11 @@ export default {
 
       if (request.method === "POST" && path === "/admin/content/save") {
         return await handleAdminContentSave(request, env.DB, user);
+      }
+
+      const adminSupport = path.match(/^\/admin\/support\/(\d+)\/(resolve|open)$/);
+      if (request.method === "POST" && adminSupport) {
+        return await handleAdminSupportAction(request, env.DB, user, Number(adminSupport[1]), adminSupport[2]);
       }
 
       if (request.method === "GET" && path === "/") {
@@ -322,6 +351,19 @@ async function ensureSchema(db) {
           updated_by INTEGER,
           updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )`,
+        `CREATE TABLE IF NOT EXISTS nexus_support_requests (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          ticket_ref TEXT NOT NULL UNIQUE,
+          user_id INTEGER,
+          name TEXT NOT NULL,
+          email TEXT NOT NULL,
+          subject TEXT NOT NULL,
+          message TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'open',
+          admin_note TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )`,
         `CREATE INDEX IF NOT EXISTS idx_nexus_missions_status ON nexus_missions(status, created_at)`,
         `CREATE INDEX IF NOT EXISTS idx_nexus_submissions_worker ON nexus_submissions(worker_id, created_at)`,
         `CREATE INDEX IF NOT EXISTS idx_nexus_submissions_mission ON nexus_submissions(mission_id, status)`,
@@ -332,7 +374,9 @@ async function ensureSchema(db) {
         `CREATE INDEX IF NOT EXISTS idx_nexus_pix_user ON nexus_pix_deposits(user_id, created_at)`,
         `CREATE INDEX IF NOT EXISTS idx_nexus_pix_status ON nexus_pix_deposits(status, created_at)`,
         `CREATE INDEX IF NOT EXISTS idx_nexus_withdraw_user ON nexus_withdrawals(user_id, created_at)`,
-        `CREATE INDEX IF NOT EXISTS idx_nexus_withdraw_status ON nexus_withdrawals(status, created_at)`
+        `CREATE INDEX IF NOT EXISTS idx_nexus_withdraw_status ON nexus_withdrawals(status, created_at)`,
+        `CREATE INDEX IF NOT EXISTS idx_nexus_support_status ON nexus_support_requests(status, created_at)`,
+        `CREATE INDEX IF NOT EXISTS idx_nexus_support_user ON nexus_support_requests(user_id, created_at)`
       ];
       await db.batch(statements.map(sql => db.prepare(sql)));
 
@@ -340,6 +384,9 @@ async function ensureSchema(db) {
       await ensureColumn(db, "nexus_users", "is_blocked", "INTEGER NOT NULL DEFAULT 0");
       await ensureColumn(db, "nexus_users", "cpf_cnpj", "TEXT");
       await ensureColumn(db, "nexus_users", "asaas_customer_id", "TEXT");
+      await ensureColumn(db, "nexus_users", "terms_version", "TEXT");
+      await ensureColumn(db, "nexus_users", "privacy_version", "TEXT");
+      await ensureColumn(db, "nexus_users", "legal_accepted_at", "TEXT");
       await ensureColumn(db, "nexus_missions", "deadline", "TEXT");
       await ensureColumn(db, "nexus_missions", "estimated_minutes", "INTEGER NOT NULL DEFAULT 5");
       await ensureColumn(db, "nexus_missions", "fee_rate", "REAL NOT NULL DEFAULT 0.20");
@@ -1045,7 +1092,7 @@ async function getClientData(db,userId) {
 }
 
 async function getAdminData(db) {
-  const [users,missions,withdrawals,deposits,stats,platform] = await Promise.all([
+  const [users,missions,withdrawals,deposits,support,stats,platform] = await Promise.all([
     db.prepare(`
       SELECT u.id,u.name,u.email,u.role,u.is_admin,u.is_blocked,u.created_at,
              COALESCE(c.available,0) client_available,COALESCE(c.reserved,0) client_reserved
@@ -1068,6 +1115,11 @@ async function getAdminData(db) {
       ORDER BY p.id DESC LIMIT 100
     `).all(),
     db.prepare(`
+      SELECT id,ticket_ref,user_id,name,email,subject,message,status,admin_note,created_at,updated_at
+      FROM nexus_support_requests
+      ORDER BY CASE status WHEN 'open' THEN 0 ELSE 1 END,id DESC LIMIT 100
+    `).all(),
+    db.prepare(`
       SELECT
         (SELECT COUNT(*) FROM nexus_users) users,
         (SELECT COUNT(*) FROM nexus_missions WHERE status='open' AND funded=1) open_missions,
@@ -1075,6 +1127,7 @@ async function getAdminData(db) {
         (SELECT COALESCE(SUM(reserved),0) FROM nexus_client_wallet) total_reserved,
         (SELECT COUNT(*) FROM nexus_withdrawals WHERE status='pending') pending_withdrawals,
         (SELECT COUNT(*) FROM nexus_pix_deposits WHERE status='pending') pending_pix,
+        (SELECT COUNT(*) FROM nexus_support_requests WHERE status='open') open_support,
         (SELECT COALESCE(SUM(amount),0) FROM nexus_pix_deposits WHERE status='paid') pix_received
     `).first(),
     db.prepare("SELECT COALESCE(SUM(amount),0) v FROM nexus_platform_ledger").first()
@@ -1084,6 +1137,7 @@ async function getAdminData(db) {
     missions:missions.results||[],
     withdrawals:withdrawals.results||[],
     deposits:deposits.results||[],
+    support:support.results||[],
     stats:stats||{},
     platform:Number(platform?.v||0)
   };
@@ -1163,6 +1217,241 @@ async function handleAdminContentSave(request, db, user) {
   return redirect("/?view=admin&msg="+enc("Textos públicos atualizados."),request);
 }
 
+
+function hasCurrentLegalAcceptance(user) {
+  return !!user &&
+    String(user.terms_version||"")===TERMS_VERSION &&
+    String(user.privacy_version||"")===PRIVACY_VERSION &&
+    !!user.legal_accepted_at;
+}
+
+async function handleLegalAcceptance(request, db, user) {
+  const f=await request.formData();
+  if(String(f.get("accept_legal")||"")!=="yes") {
+    return redirect("/?err="+enc("Para continuar, aceite os Termos de Uso e a Política de Privacidade."),request);
+  }
+  await db.prepare(`
+    UPDATE nexus_users
+    SET terms_version=?,privacy_version=?,legal_accepted_at=CURRENT_TIMESTAMP
+    WHERE id=?
+  `).bind(TERMS_VERSION,PRIVACY_VERSION,user.id).run();
+  await auditSecurity(db,request,user.id,"legal_accept",`${TERMS_VERSION}/${PRIVACY_VERSION}`);
+  return redirect("/?msg="+enc("Termos e Privacidade aceitos."),request);
+}
+
+function renderLegalAcceptance(user) {
+  return page("Atualização de termos — Bern Nexus", `
+    <div class="legal-shell legal-accept-shell">
+      <a class="legal-brand" href="/"><img src="${BRAND_LOGO_DATA}" alt=""><span>BERN <b>NEXUS</b></span></a>
+      <div class="legal-card legal-accept-card">
+        <span class="legal-kicker">ANTES DE CONTINUAR</span>
+        <h1>Confirme os Termos e a Privacidade.</h1>
+        <p>Atualizamos as regras de uso da plataforma. Leia os documentos e confirme para continuar usando sua conta.</p>
+        <div class="legal-links-large">
+          <a href="/termos" target="_blank" rel="noopener">Ler Termos de Uso ↗</a>
+          <a href="/privacidade" target="_blank" rel="noopener">Ler Política de Privacidade ↗</a>
+        </div>
+        <form method="post" action="/legal/accept">
+          <label class="legal-check">
+            <input type="checkbox" name="accept_legal" value="yes" required>
+            <span>Li e aceito os Termos de Uso e a Política de Privacidade do Bern Nexus.</span>
+          </label>
+          <button class="btn primary wide">Aceitar e continuar</button>
+        </form>
+        <form method="post" action="/logout"><button class="btn secondary wide">Sair da conta</button></form>
+      </div>
+    </div>
+  `);
+}
+
+async function handleSupportRequest(request, db, user) {
+  const f=await request.formData();
+  const name=clean(f.get("name") || user?.name || "",80);
+  const email=clean(f.get("email") || user?.email || "",160).toLowerCase();
+  const subject=clean(f.get("subject"),120);
+  const message=clean(f.get("message"),2000);
+
+  const rate=await enforceRateLimit(db,request,"support",email,5,60*60*1000);
+  if(!rate.ok) return redirect("/suporte?err="+enc("Muitas solicitações em pouco tempo. Tente novamente mais tarde."),request);
+
+  if(name.length<2) return redirect("/suporte?err="+enc("Informe seu nome."),request);
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return redirect("/suporte?err="+enc("Informe um e-mail válido."),request);
+  if(subject.length<3) return redirect("/suporte?err="+enc("Informe o assunto."),request);
+  if(message.length<10) return redirect("/suporte?err="+enc("Explique um pouco melhor como podemos ajudar."),request);
+
+  const ref="SUP-"+Date.now().toString(36).toUpperCase()+"-"+randomHex(3).toUpperCase();
+  await db.prepare(`
+    INSERT INTO nexus_support_requests(ticket_ref,user_id,name,email,subject,message)
+    VALUES(?,?,?,?,?,?)
+  `).bind(ref,user?.id||null,name,email,subject,message).run();
+
+  await auditSecurity(db,request,user?.id||null,"support_request",ref);
+  return redirect("/suporte?ticket="+enc(ref),request);
+}
+
+async function handleAdminSupportAction(request, db, user, ticketId, action) {
+  if(!user?.is_admin) return redirect("/?view=profile&err="+enc("Acesso não autorizado."),request);
+  const status=action==="resolve"?"resolved":"open";
+  await db.prepare("UPDATE nexus_support_requests SET status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?")
+    .bind(status,ticketId).run();
+  await auditSecurity(db,request,user.id,"admin_support_"+status,String(ticketId));
+  return redirect("/?view=admin&msg="+enc(status==="resolved"?"Chamado marcado como resolvido.":"Chamado reaberto."),request);
+}
+
+function renderPublicHeader(active="") {
+  return `
+    <header class="trust-header">
+      <a class="trust-brand" href="/"><img src="${BRAND_LOGO_DATA}" alt=""><span>BERN <b>NEXUS</b></span></a>
+      <nav>
+        <a href="/termos" class="${active==="terms"?"active":""}">Termos</a>
+        <a href="/privacidade" class="${active==="privacy"?"active":""}">Privacidade</a>
+        <a href="/suporte" class="${active==="support"?"active":""}">Suporte</a>
+        <a class="trust-login" href="/login">Entrar</a>
+      </nav>
+    </header>`;
+}
+
+function renderLegalFooter() {
+  return `<footer class="platform-legal-footer">
+    <span>© ${new Date().getUTCFullYear()} Bern Nexus</span>
+    <nav>
+      <a href="/termos">Termos de Uso</a>
+      <a href="/privacidade">Privacidade</a>
+      <a href="/suporte">Suporte</a>
+    </nav>
+  </footer>`;
+}
+
+function renderTermsPage() {
+  return page("Termos de Uso — Bern Nexus", `
+    <div class="trust-page">
+      ${renderPublicHeader("terms")}
+      <main class="legal-shell">
+        <article class="legal-document">
+          <span class="legal-kicker">VERSÃO ${TERMS_VERSION}</span>
+          <h1>Termos de Uso</h1>
+          <p class="legal-lead">Estes Termos regulam o uso do Bern Nexus por trabalhadores, contratantes e demais usuários.</p>
+
+          <h2>1. O que é o Bern Nexus</h2>
+          <p>O Bern Nexus é uma plataforma que conecta pessoas interessadas em realizar pequenas tarefas com pessoas ou negócios que precisam de pesquisas, testes privados, opiniões, levantamentos e outras atividades legítimas descritas em cada missão.</p>
+
+          <h2>2. Elegibilidade e conta</h2>
+          <p>Para usar funcionalidades financeiras, o usuário declara possuir capacidade legal para contratar e fornecer informações verdadeiras e atualizadas. A conta é pessoal e não deve ser compartilhada.</p>
+
+          <h2>3. Trabalhadores</h2>
+          <p>As missões são opcionais e exibem recompensa, prazo e instruções antes do aceite. A existência de missões, frequência e renda não são garantidas. A recompensa depende da execução adequada e da aprovação conforme as regras da missão.</p>
+
+          <h2>4. Contratantes</h2>
+          <p>O contratante deve publicar instruções claras, manter saldo suficiente para o custo final informado e avaliar os trabalhos de boa-fé. O Bern Nexus poderá suspender missões abusivas, enganosas, ilegais ou incompatíveis com as regras da plataforma.</p>
+
+          <h2>5. Atividades proibidas</h2>
+          <p>Não são permitidas tarefas destinadas a manipular avaliações públicas, seguidores, curtidas, comentários, rankings, métricas, votações ou reputações; fraude, spam, assédio, coleta indevida de dados, conteúdo ilegal, golpes, falsidade ou qualquer atividade que viole direitos de terceiros.</p>
+
+          <h2>6. Pagamentos, saldo e saques</h2>
+          <p>Valores apresentados ao trabalhador representam a recompensa daquela missão. O contratante visualiza o custo final aplicável. Créditos e saques podem passar por confirmação, análise antifraude e conciliação antes de ficarem disponíveis ou serem considerados concluídos.</p>
+
+          <h2>7. Aprovação e disputas</h2>
+          <p>O contratante poderá aprovar ou rejeitar trabalhos conforme as instruções publicadas. O Bern Nexus poderá revisar situações excepcionais para prevenir abuso, fraude, duplicidade ou inconsistência financeira.</p>
+
+          <h2>8. Suspensão e encerramento</h2>
+          <p>Contas e missões podem ser limitadas ou suspensas quando houver indícios de fraude, violação destes Termos, risco à plataforma ou a terceiros, ou necessidade de cumprimento legal.</p>
+
+          <h2>9. Propriedade intelectual</h2>
+          <p>A marca, identidade visual, software e elementos próprios do Bern Nexus permanecem protegidos pelos direitos aplicáveis. O usuário mantém os direitos sobre conteúdo próprio que enviar, concedendo apenas as autorizações necessárias à execução da missão e operação da plataforma.</p>
+
+          <h2>10. Limites e disponibilidade</h2>
+          <p>O Bern Nexus busca manter a plataforma disponível e segura, mas não garante funcionamento ininterrupto, quantidade mínima de missões, ganhos, resultados comerciais ou compatibilidade com todos os dispositivos.</p>
+
+          <h2>11. Alterações</h2>
+          <p>Estes Termos poderão ser atualizados. Quando uma nova versão exigir aceite, o usuário será solicitado a confirmá-la antes de continuar utilizando a plataforma.</p>
+
+          <h2>12. Contato</h2>
+          <p>Dúvidas, solicitações ou problemas podem ser enviados pela página de <a href="/suporte">Suporte</a>.</p>
+        </article>
+        ${renderLegalFooter()}
+      </main>
+    </div>`);
+}
+
+function renderPrivacyPage() {
+  return page("Política de Privacidade — Bern Nexus", `
+    <div class="trust-page">
+      ${renderPublicHeader("privacy")}
+      <main class="legal-shell">
+        <article class="legal-document">
+          <span class="legal-kicker">VERSÃO ${PRIVACY_VERSION}</span>
+          <h1>Política de Privacidade</h1>
+          <p class="legal-lead">Esta Política explica, em linguagem direta, quais dados o Bern Nexus utiliza e por quê.</p>
+
+          <h2>1. Dados que podemos tratar</h2>
+          <p>Podemos tratar dados cadastrais como nome e e-mail; informações de conta e perfil; registros de missões, trabalhos, aprovações e carteira; dados necessários a pagamentos e saques; mensagens enviadas ao suporte; e registros técnicos de segurança, como identificadores de sessão e informações destinadas a prevenir abuso.</p>
+
+          <h2>2. Finalidades</h2>
+          <p>Usamos os dados para criar e autenticar contas, operar missões, processar e conciliar pagamentos, permitir saques, prevenir fraude, oferecer suporte, manter segurança, cumprir obrigações legais e melhorar a experiência da plataforma.</p>
+
+          <h2>3. Minimização</h2>
+          <p>Buscamos limitar o tratamento ao necessário para cada finalidade. Informações usadas apenas para uma operação específica podem ser encaminhadas ao prestador responsável sem permanecer armazenadas no Bern Nexus quando isso não for necessário.</p>
+
+          <h2>4. Compartilhamento</h2>
+          <p>Dados podem ser processados por provedores de infraestrutura, segurança e pagamentos necessários ao funcionamento do serviço, além de autoridades quando houver obrigação legal. Não vendemos dados pessoais a anunciantes.</p>
+
+          <h2>5. Segurança</h2>
+          <p>Aplicamos controles como autenticação, limitação de tentativas, registro de eventos de segurança, restrições de sessão e medidas de proteção da aplicação. Nenhum sistema online, porém, elimina totalmente os riscos de segurança.</p>
+
+          <h2>6. Retenção</h2>
+          <p>Os dados são mantidos pelo período necessário às finalidades da plataforma, segurança, prevenção a fraude, obrigações legais, exercício de direitos e registros financeiros aplicáveis. Dados poderão ser eliminados ou anonimizados quando não houver necessidade legítima de conservação.</p>
+
+          <h2>7. Direitos do titular</h2>
+          <p>Nos termos da LGPD, o titular pode solicitar informações sobre o tratamento, confirmação e acesso, correção, anonimização, bloqueio ou eliminação quando aplicável, portabilidade nas hipóteses legais, informações sobre compartilhamento e demais direitos previstos em lei.</p>
+
+          <h2>8. Solicitações de privacidade</h2>
+          <p>Pedidos relacionados a dados pessoais podem ser feitos pela página de <a href="/suporte">Suporte</a>, identificando no assunto que se trata de privacidade ou LGPD.</p>
+
+          <h2>9. Atualizações</h2>
+          <p>Esta Política poderá ser atualizada conforme a evolução da plataforma, requisitos legais ou mudanças operacionais. Quando necessário, solicitaremos novo aceite.</p>
+        </article>
+        ${renderLegalFooter()}
+      </main>
+    </div>`);
+}
+
+function renderSupportPage(url, user) {
+  const ticket=url.searchParams.get("ticket")||"";
+  const err=url.searchParams.get("err")||"";
+  return page("Suporte — Bern Nexus", `
+    <div class="trust-page">
+      ${renderPublicHeader("support")}
+      <main class="legal-shell support-shell">
+        <section class="support-intro">
+          <span class="legal-kicker">SUPORTE BERN NEXUS</span>
+          <h1>Como podemos ajudar?</h1>
+          <p>Envie sua dúvida, problema financeiro, solicitação de privacidade ou dificuldade com uma missão.</p>
+        </section>
+        ${ticket?`<div class="support-success"><b>Solicitação recebida.</b><span>Seu protocolo é <strong>${esc(ticket)}</strong>. Guarde este código.</span></div>`:""}
+        ${err?`<div class="flash err">${esc(err)}</div>`:""}
+        <form class="support-form" method="post" action="/suporte">
+          <div class="support-two">
+            <div><label>Nome</label><input class="field" name="name" value="${esc(user?.name||"")}" required maxlength="80"></div>
+            <div><label>E-mail</label><input class="field" type="email" name="email" value="${esc(user?.email||"")}" required maxlength="160"></div>
+          </div>
+          <label>Assunto</label>
+          <select class="field" name="subject" required>
+            <option value="Missão ou trabalho">Missão ou trabalho</option>
+            <option value="Pagamento ou saldo">Pagamento ou saldo</option>
+            <option value="Saque">Saque</option>
+            <option value="Conta e acesso">Conta e acesso</option>
+            <option value="Privacidade / LGPD">Privacidade / LGPD</option>
+            <option value="Outro">Outro</option>
+          </select>
+          <label>Mensagem</label>
+          <textarea class="field" name="message" minlength="10" maxlength="2000" required placeholder="Conte o que aconteceu e, se houver, informe o número da missão ou referência do pagamento."></textarea>
+          <button class="btn primary wide">Enviar para o suporte</button>
+        </form>
+        ${renderLegalFooter()}
+      </main>
+    </div>`);
+}
+
 async function sha256Hex(value) {
   const data = new TextEncoder().encode(String(value || ""));
   const digest = await crypto.subtle.digest("SHA-256", data);
@@ -1216,6 +1505,7 @@ async function handleRegister(request, db) {
   const email = clean(f.get("email"),160).toLowerCase();
   const password = String(f.get("password")||"");
   const role = ["worker","client","both"].includes(String(f.get("role"))) ? String(f.get("role")) : "worker";
+  const acceptedLegal=String(f.get("accept_legal")||"")==="yes";
 
   const rate = await enforceRateLimit(db,request,"register",email,5,30*60*1000);
   if(!rate.ok) {
@@ -1226,14 +1516,19 @@ async function handleRegister(request, db) {
   if(name.length<2) return redirect("/register?err="+enc("Informe seu nome."),request);
   if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return redirect("/register?err="+enc("E-mail inválido."),request);
   if(password.length<8) return redirect("/register?err="+enc("Use uma senha com pelo menos 8 caracteres."),request);
+  if(!acceptedLegal) return redirect("/register?err="+enc("Aceite os Termos de Uso e a Política de Privacidade para criar sua conta."),request);
 
   const exists=await db.prepare("SELECT id FROM nexus_users WHERE email=? LIMIT 1").bind(email).first();
   if(exists) return redirect("/login?err="+enc("Esse e-mail já está cadastrado."),request);
 
   const salt=randomHex(16);
   const hash=await hashPassword(password,salt);
-  const r=await db.prepare("INSERT INTO nexus_users(name,email,password_hash,password_salt,role) VALUES(?,?,?,?,?)")
-    .bind(name,email,hash,salt,role).run();
+  const r=await db.prepare(`
+    INSERT INTO nexus_users(
+      name,email,password_hash,password_salt,role,
+      terms_version,privacy_version,legal_accepted_at
+    ) VALUES(?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+  `).bind(name,email,hash,salt,role,TERMS_VERSION,PRIVACY_VERSION).run();
   const userId=Number(r.meta?.last_row_id||0);
   if(!userId) throw new Error("Não foi possível criar o usuário.");
 
@@ -1850,6 +2145,7 @@ async function renderDashboard(request, env, user, url) {
         ${msg?`<div class="flash ok">${esc(msg)}</div>`:""}
         ${err?`<div class="flash err">${esc(err)}</div>`:""}
         ${content}
+        ${renderLegalFooter()}
       </main>
       ${renderNav(view,user)}
     </div>`;
@@ -2343,6 +2639,7 @@ function renderAdmin(user,data,financeConfig={},publicCopy=PUBLIC_CONTENT_DEFAUL
       ${metric("Revisões pendentes",Number(data.stats.pending_reviews||0))}
       ${metric("Saques pendentes",Number(data.stats.pending_withdrawals||0))}
       ${metric("PIX pendentes",Number(data.stats.pending_pix||0))}
+      ${metric("Suporte aberto",Number(data.stats.open_support||0))}
       ${metric("PIX recebidos",brl(data.stats.pix_received||0))}
       ${metric("Saldo reservado",brl(data.stats.total_reserved||0))}
       ${metric("Resultado plataforma",brl(data.platform))}
@@ -2437,6 +2734,25 @@ function renderAdmin(user,data,financeConfig={},publicCopy=PUBLIC_CONTENT_DEFAUL
       </tr>`).join(""):`<tr><td colspan="5">Nenhuma cobrança PIX registrada.</td></tr>`}
     </tbody></table></div>
 
+    <div class="section-title spaced"><h2>Suporte</h2><span>${data.support.length}</span></div>
+    <div class="support-admin-grid">
+      ${data.support.length?data.support.map(t=>`
+        <article class="panel support-admin-card ${t.status==="open"?"support-open":""}">
+          <div class="support-admin-head">
+            <div><span class="tag">${esc(t.ticket_ref)}</span><h3>${esc(t.subject)}</h3></div>
+            <span class="status ${t.status==="open"?"submitted":"approved"}">${t.status==="open"?"ABERTO":"RESOLVIDO"}</span>
+          </div>
+          <p class="support-contact">${esc(t.name)} · ${esc(t.email)}</p>
+          <div class="answer">${esc(t.message)}</div>
+          <div class="row">
+            <form method="post" action="/admin/support/${t.id}/${t.status==="open"?"resolve":"open"}">
+              <button class="btn ${t.status==="open"?"primary":"secondary"} wide">${t.status==="open"?"Marcar resolvido":"Reabrir"}</button>
+            </form>
+          </div>
+        </article>
+      `).join(""):`<div class="empty">Nenhum chamado de suporte.</div>`}
+    </div>
+
     <div class="section-title spaced"><h2>Usuários</h2><span>${data.users.length}</span></div>
     <div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Usuário</th><th>Perfil</th><th>Saldo</th><th>Status</th><th>Ações</th></tr></thead><tbody>
       ${data.users.map(u=>`<tr>
@@ -2518,6 +2834,7 @@ async function renderLanding(db) {
 
           <div class="float-stack reveal">
             <article class="float-card float-card-main">
+              <span class="demo-label">DEMONSTRAÇÃO</span>
               <div class="float-card-head">
                 <span class="float-tag">TESTE</span>
                 <strong>R$ 5,00</strong>
@@ -2533,12 +2850,14 @@ async function renderLanding(db) {
             </article>
 
             <article class="float-card float-card-mini float-card-top">
+              <span class="demo-label demo-label-dark">EXEMPLO</span>
               <small>Ganhos aprovados hoje</small>
               <b>R$ 18,50</b>
               <div class="float-progress"><i style="width:37%"></i></div>
             </article>
 
             <article class="float-card float-card-mini float-card-bottom">
+              <span class="demo-label demo-label-dark">EXEMPLO</span>
               <small>Missões disponíveis</small>
               <b>7 agora</b>
               <span>Escolha a que faz sentido para você</span>
@@ -2567,6 +2886,7 @@ async function renderLanding(db) {
           </div>
 
           <div class="business-stage reveal">
+            <span class="demo-stage-label">DEMONSTRAÇÃO DO PAINEL</span>
             <article class="biz-float biz-float-main">
               <div class="biz-title-row">
                 <div>
@@ -2747,6 +3067,12 @@ async function renderLanding(db) {
         </section>
       </main>
 
+      <footer class="cinema-footer">
+        <div class="cinema-footer-brand"><img src="${BRAND_LOGO_DATA}" alt=""><span>BERN <b>NEXUS</b></span></div>
+        <p>Pequenas missões. Pessoas reais. Resultados claros.</p>
+        <nav><a href="/termos">Termos</a><a href="/privacidade">Privacidade</a><a href="/suporte">Suporte</a><a href="/login">Entrar</a></nav>
+      </footer>
+
       <div class="cinema-mobile-cta">
         <a href="/register?role=worker">Fazer missões</a>
         <a href="/register?role=client">Publicar tarefa</a>
@@ -2787,12 +3113,17 @@ function renderAuth(mode, url) {
               <option value="client" ${requestedRole==="client"?"selected":""}>Quero publicar missões</option>
               <option value="both" ${requestedRole==="both"?"selected":""}>Quero fazer os dois</option>
             </select>
+            <label class="legal-check auth-legal-check">
+              <input type="checkbox" name="accept_legal" value="yes" required>
+              <span>Li e aceito os <a href="/termos" target="_blank" rel="noopener">Termos de Uso</a> e a <a href="/privacidade" target="_blank" rel="noopener">Política de Privacidade</a>.</span>
+            </label>
           ` : ""}
           <button class="btn primary wide">${register ? "Criar conta" : "Entrar"}</button>
         </form>
 
         <a class="switch" href="${register ? "/login" : "/register"}">${register ? "Já tenho conta" : "Criar minha conta"}</a>
         <a class="auth-home-link" href="/">← Voltar para a página inicial</a>
+        <div class="auth-legal-links"><a href="/termos">Termos</a><a href="/privacidade">Privacidade</a><a href="/suporte">Suporte</a></div>
       </div>
     </div>
   `);
@@ -2807,7 +3138,8 @@ async function currentUser(request, db) {
   if(!token) return null;
   const tokenHash=await sha256Hex("session:"+token);
   const row=await db.prepare(`
-    SELECT u.id,u.name,u.email,u.role,u.created_at,u.is_admin,u.is_blocked,s.token session_token
+    SELECT u.id,u.name,u.email,u.role,u.created_at,u.is_admin,u.is_blocked,
+           u.terms_version,u.privacy_version,u.legal_accepted_at,s.token session_token
     FROM nexus_sessions s JOIN nexus_users u ON u.id=s.user_id
     WHERE (s.token=? OR s.token=?) AND s.expires_at>CURRENT_TIMESTAMP LIMIT 1
   `).bind(tokenHash,token).first();
@@ -2825,6 +3157,9 @@ async function currentUser(request, db) {
     role:["worker","client","both"].includes(String(row.role))?String(row.role):"worker",
     is_admin:Number(row.is_admin||0)===1,
     is_blocked:Number(row.is_blocked||0)===1,
+    terms_version:String(row.terms_version||""),
+    privacy_version:String(row.privacy_version||""),
+    legal_accepted_at:row.legal_accepted_at||"",
     created_at:row.created_at||""
   };
 }
@@ -4714,6 +5049,103 @@ form{min-width:0}
 @media(max-width:560px){
   .admin-content-head,.admin-content-footer{align-items:stretch;flex-direction:column}
   .admin-content-head .btn,.admin-content-footer .btn{width:100%}
+}
+
+
+/* === PRE-LAUNCH TRUST / LEGAL / SUPPORT v0.5.5 === */
+.demo-label,.demo-stage-label{
+  display:inline-flex;align-items:center;justify-content:center;
+  padding:5px 8px;border-radius:999px;
+  background:#BC913C;color:#0A0A0A;
+  font-size:8px;font-weight:950;letter-spacing:.8px
+}
+.demo-label{margin-bottom:10px}
+.demo-label-dark{background:#0A0A0A;color:#E0B55A}
+.demo-stage-label{
+  position:absolute;left:4%;top:8px;z-index:8
+}
+
+.cinema-footer{
+  display:flex;align-items:center;justify-content:space-between;gap:22px;
+  padding:28px max(20px,calc((100vw - 1180px)/2)) 88px;
+  background:#0A0A0A;border-top:1px solid #262626;color:#BBB9B6
+}
+.cinema-footer-brand{display:flex;align-items:center;gap:10px;color:#fff;font-weight:950}
+.cinema-footer-brand img{width:38px;height:38px;border-radius:10px}
+.cinema-footer-brand b{color:#E0B55A}
+.cinema-footer p{margin:0;font-size:12px}
+.cinema-footer nav{display:flex;gap:16px;flex-wrap:wrap}
+.cinema-footer a{color:#BBB9B6;text-decoration:none;font-size:12px}
+.cinema-footer a:hover{color:#E0B55A}
+
+.platform-legal-footer{
+  width:100%;display:flex;justify-content:space-between;gap:16px;align-items:center;
+  margin-top:44px;padding:20px 0 4px;border-top:1px solid #E5E2DC;
+  color:#716E69;font-size:11px
+}
+.platform-legal-footer nav{display:flex;gap:14px;flex-wrap:wrap}
+.platform-legal-footer a{color:#86672A;text-decoration:none;font-weight:750}
+
+.trust-page{min-height:100vh;background:#F7F6F1;color:#0A0A0A}
+.trust-header{
+  position:sticky;top:0;z-index:50;display:flex;justify-content:space-between;align-items:center;gap:20px;
+  padding:13px max(18px,calc((100vw - 1040px)/2));
+  background:rgba(10,10,10,.97);border-bottom:1px solid #292929
+}
+.trust-brand{display:flex;align-items:center;gap:9px;color:#fff;text-decoration:none;font-weight:950}
+.trust-brand img{width:36px;height:36px;border-radius:9px}
+.trust-brand b{color:#E0B55A}
+.trust-header nav{display:flex;align-items:center;gap:15px}
+.trust-header nav a{color:#BBB9B6;text-decoration:none;font-size:12px;font-weight:750}
+.trust-header nav a.active{color:#E0B55A}
+.trust-login{background:#fff!important;color:#0A0A0A!important;padding:8px 12px;border-radius:9px}
+
+.legal-shell{width:min(1040px,100%);margin:0 auto;padding:54px 20px 60px}
+.legal-document{width:min(820px,100%);margin:0 auto;background:#fff;border:1px solid #DAD7D2;border-radius:24px;padding:clamp(24px,5vw,54px);box-shadow:0 20px 60px rgba(10,10,10,.06)}
+.legal-kicker{display:inline-block;color:#86672A;font-size:10px;font-weight:950;letter-spacing:1.4px;margin-bottom:12px}
+.legal-document h1,.support-intro h1,.legal-accept-card h1{margin:0;font-size:clamp(36px,6vw,62px);line-height:1;letter-spacing:-2px}
+.legal-lead,.support-intro p,.legal-accept-card>p{font-size:16px;line-height:1.65;color:#716E69}
+.legal-document h2{margin:34px 0 8px;font-size:20px}
+.legal-document p{color:#57534C;line-height:1.75;font-size:14px}
+.legal-document a{color:#86672A;font-weight:800}
+
+.legal-accept-shell{min-height:100vh;display:grid;place-items:center}
+.legal-brand{position:absolute;top:22px;left:max(20px,calc((100vw - 1040px)/2));display:flex;align-items:center;gap:9px;text-decoration:none;color:#0A0A0A;font-weight:950}
+.legal-brand img{width:38px;height:38px;border-radius:9px}
+.legal-brand b{color:#BC913C}
+.legal-accept-card{width:min(620px,100%);background:#fff;border:1px solid #DAD7D2;border-radius:24px;padding:32px;box-shadow:0 24px 70px rgba(10,10,10,.08)}
+.legal-links-large{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:22px 0}
+.legal-links-large a{background:#F7F6F1;border:1px solid #DAD7D2;border-radius:12px;padding:13px;text-decoration:none;color:#0A0A0A;font-weight:850}
+.legal-check{display:flex!important;gap:10px;align-items:flex-start;margin:16px 0!important;color:#4D4A45!important;font-size:12px!important;line-height:1.5}
+.legal-check input{margin-top:3px;accent-color:#BC913C;flex:0 0 auto}
+.legal-check a{color:#86672A;font-weight:850}
+.auth-legal-check{padding:11px;border:1px solid #E0D8C6;border-radius:12px;background:#F7F6F1}
+.auth-legal-links{display:flex;justify-content:center;gap:12px;margin-top:14px}
+.auth-legal-links a{font-size:11px;color:#86672A;text-decoration:none}
+
+.support-shell{width:min(900px,100%)}
+.support-intro{max-width:700px;margin-bottom:24px}
+.support-form{background:#fff;border:1px solid #DAD7D2;border-radius:22px;padding:24px;box-shadow:0 18px 50px rgba(10,10,10,.06)}
+.support-two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.support-success{display:flex;flex-direction:column;gap:4px;background:#FFF7E2;border:1px solid #E0B55A;border-radius:14px;padding:14px;margin:0 0 16px;color:#4D3A0F}
+.support-admin-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.support-admin-card{min-width:0}
+.support-admin-card.support-open{border-color:#BC913C}
+.support-admin-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.support-admin-head h3{margin:9px 0 0}
+.support-contact{font-size:12px;color:#716E69}
+
+@media(max-width:720px){
+  .cinema-footer{padding:24px 14px 92px;flex-direction:column;align-items:flex-start}
+  .platform-legal-footer{flex-direction:column;align-items:flex-start}
+  .trust-header{padding:10px 12px}
+  .trust-header nav a:not(.trust-login):not(.active){display:none}
+  .legal-shell{padding:34px 12px 44px}
+  .legal-document,.legal-accept-card,.support-form{padding:20px;border-radius:18px}
+  .legal-links-large,.support-two,.support-admin-grid{grid-template-columns:1fr}
+  .legal-brand{position:static;margin-bottom:18px}
+  .legal-accept-shell{display:block;padding-top:22px}
+  .demo-stage-label{position:relative;left:auto;top:auto;margin-bottom:8px}
 }
 </style>
 </head>
