@@ -1,5 +1,7 @@
 const MIN_REWARD = 2.50;
 const DAILY_GOAL = 50.00;
+const PLATFORM_FEE_RATE = 0.20;
+const PAGE_SIZE = 20;
 const MAX_IMAGE_CHARS = 200000;
 const SESSION_DAYS = 30;
 
@@ -17,12 +19,12 @@ export default {
               <div class="brand big">BERN <b>NEXUS</b></div>
               <h1>Falta conectar o D1</h1>
               <p class="muted">Este Worker precisa do binding <b>DB</b> apontando para seu banco D1.</p>
-              <div class="notice">No seu painel Cloudflare: Worker → Settings → Bindings → D1 database → variável <b>DB</b>.</div>
             </div>
           </div>`, 503);
       }
 
       await ensureSchema(env.DB);
+      await expireMissions(env.DB);
 
       if (request.method === "POST") {
         const origin = request.headers.get("origin");
@@ -35,22 +37,20 @@ export default {
       const path = url.pathname;
 
       if (request.method === "GET" && path === "/login") {
-        if (user) return redirect("/", request);
+        if (user && !user.is_blocked) return redirect("/", request);
         return renderAuth("login", url);
       }
 
       if (request.method === "GET" && path === "/register") {
-        if (user) return redirect("/", request);
+        if (user && !user.is_blocked) return redirect("/", request);
         return renderAuth("register", url);
       }
 
       if (request.method === "POST" && path === "/register") {
-        if (user) return redirect("/", request);
         return await handleRegister(request, env.DB);
       }
 
       if (request.method === "POST" && path === "/login") {
-        if (user) return redirect("/", request);
         return await handleLogin(request, env.DB);
       }
 
@@ -59,6 +59,16 @@ export default {
       }
 
       if (!user) return redirect("/login", request);
+
+      if (user.is_blocked) {
+        return page("Conta suspensa", `
+          <div class="auth-wrap"><div class="auth-card">
+            <div class="brand big">BERN <b>NEXUS</b></div>
+            <h1>Conta suspensa</h1>
+            <p class="muted">Seu acesso foi bloqueado pelo administrador.</p>
+            <form method="post" action="/logout"><button class="btn secondary wide">Sair</button></form>
+          </div></div>`, 403);
+      }
 
       if (request.method === "POST" && path === "/missions/create") {
         return await handleCreateMission(request, env.DB, user);
@@ -74,6 +84,11 @@ export default {
         return await handleSubmitWork(request, env.DB, user, Number(submit[1]));
       }
 
+      const cancel = path.match(/^\/submissions\/(\d+)\/cancel$/);
+      if (request.method === "POST" && cancel) {
+        return await handleCancelSubmission(request, env.DB, user, Number(cancel[1]));
+      }
+
       const review = path.match(/^\/submissions\/(\d+)\/(approve|reject)$/);
       if (request.method === "POST" && review) {
         return await handleReview(request, env.DB, user, Number(review[1]), review[2]);
@@ -82,6 +97,20 @@ export default {
       const toggle = path.match(/^\/missions\/(\d+)\/(open|close)$/);
       if (request.method === "POST" && toggle) {
         return await handleMissionStatus(request, env.DB, user, Number(toggle[1]), toggle[2] === "open" ? "open" : "closed");
+      }
+
+      if (request.method === "POST" && path === "/admin/claim") {
+        return await handleAdminClaim(request, env.DB, user);
+      }
+
+      const adminUser = path.match(/^\/admin\/users\/(\d+)\/(block|unblock|credit)$/);
+      if (request.method === "POST" && adminUser) {
+        return await handleAdminUserAction(request, env.DB, user, Number(adminUser[1]), adminUser[2]);
+      }
+
+      const adminMission = path.match(/^\/admin\/missions\/(\d+)\/close$/);
+      if (request.method === "POST" && adminMission) {
+        return await handleAdminMissionClose(request, env.DB, user, Number(adminMission[1]));
       }
 
       if (request.method === "GET" && path === "/") {
@@ -97,8 +126,7 @@ export default {
             <div class="brand big">BERN <b>NEXUS</b></div>
             <h1>Algo deu errado</h1>
             <p class="muted">${esc(String(e?.message || e))}</p>
-            <div class="notice">Se o erro aconteceu no cadastro, volte ao login e tente novamente. O Bern Nexus agora usa tabelas isoladas no D1.</div>
-            <a class="btn primary wide linkbtn" href="/login">Ir para o login</a>
+            <a class="btn primary wide linkbtn" href="/">Voltar</a>
           </div>
         </div>`, 500);
     }
@@ -158,12 +186,57 @@ async function ensureSchema(db) {
           description TEXT,
           created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )`,
+        `CREATE TABLE IF NOT EXISTS nexus_client_wallet (
+          user_id INTEGER PRIMARY KEY,
+          available REAL NOT NULL DEFAULT 0,
+          reserved REAL NOT NULL DEFAULT 0,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )`,
+        `CREATE TABLE IF NOT EXISTS nexus_client_ledger (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL,
+          delta_available REAL NOT NULL DEFAULT 0,
+          delta_reserved REAL NOT NULL DEFAULT 0,
+          type TEXT NOT NULL,
+          source_ref TEXT UNIQUE,
+          description TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )`,
+        `CREATE TABLE IF NOT EXISTS nexus_platform_ledger (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          amount REAL NOT NULL,
+          mission_id INTEGER,
+          submission_id INTEGER,
+          source_ref TEXT UNIQUE,
+          description TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )`,
         `CREATE INDEX IF NOT EXISTS idx_nexus_missions_status ON nexus_missions(status, created_at)`,
         `CREATE INDEX IF NOT EXISTS idx_nexus_submissions_worker ON nexus_submissions(worker_id, created_at)`,
         `CREATE INDEX IF NOT EXISTS idx_nexus_submissions_mission ON nexus_submissions(mission_id, status)`,
-        `CREATE INDEX IF NOT EXISTS idx_nexus_wallet_user ON nexus_wallet_ledger(user_id, created_at)`
+        `CREATE INDEX IF NOT EXISTS idx_nexus_wallet_user ON nexus_wallet_ledger(user_id, created_at)`,
+        `CREATE INDEX IF NOT EXISTS idx_nexus_client_ledger_user ON nexus_client_ledger(user_id, created_at)`
       ];
       await db.batch(statements.map(sql => db.prepare(sql)));
+
+      await ensureColumn(db, "nexus_users", "is_admin", "INTEGER NOT NULL DEFAULT 0");
+      await ensureColumn(db, "nexus_users", "is_blocked", "INTEGER NOT NULL DEFAULT 0");
+      await ensureColumn(db, "nexus_missions", "deadline", "TEXT");
+      await ensureColumn(db, "nexus_missions", "estimated_minutes", "INTEGER NOT NULL DEFAULT 5");
+      await ensureColumn(db, "nexus_missions", "fee_rate", "REAL NOT NULL DEFAULT 0.20");
+      await ensureColumn(db, "nexus_missions", "final_cost", "REAL NOT NULL DEFAULT 0");
+      await ensureColumn(db, "nexus_missions", "reserved_remaining", "REAL NOT NULL DEFAULT 0");
+      await ensureColumn(db, "nexus_missions", "funded", "INTEGER NOT NULL DEFAULT 0");
+
+      // Missões antigas da v0.3 não tinham reserva financeira; fechamos só essas.
+      await db.prepare("UPDATE nexus_missions SET status='closed' WHERE funded=0 AND status='open'").run();
+
+      // Garante carteira para contratantes antigos.
+      await db.prepare(`
+        INSERT OR IGNORE INTO nexus_client_wallet(user_id,available,reserved)
+        SELECT id,0,0 FROM nexus_users WHERE role IN ('client','both')
+      `).run();
+
       return true;
     })().catch(err => {
       schemaPromise = null;
@@ -173,46 +246,372 @@ async function ensureSchema(db) {
   return schemaPromise;
 }
 
+async function ensureColumn(db, table, column, definition) {
+  const rows = await db.prepare(`PRAGMA table_info(${table})`).all();
+  const exists = (rows.results || []).some(r => String(r.name) === column);
+  if (!exists) await db.prepare(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`).run();
+}
+
+async function ensureClientWallet(db, userId) {
+  await db.prepare("INSERT OR IGNORE INTO nexus_client_wallet(user_id,available,reserved) VALUES(?,0,0)").bind(userId).run();
+}
+
+function roundMoney(v) {
+  return Math.round((Number(v) + Number.EPSILON) * 100) / 100;
+}
+
+function perSlotCost(reward, feeRate = PLATFORM_FEE_RATE) {
+  return roundMoney(Number(reward) * (1 + Number(feeRate)));
+}
+
+function finalMissionCost(reward, slots, feeRate = PLATFORM_FEE_RATE) {
+  return roundMoney(perSlotCost(reward, feeRate) * Number(slots));
+}
+
+function todayDate() {
+  return new Date().toISOString().slice(0,10);
+}
+
+function datePlusDays(days) {
+  const d = new Date(Date.now() + days * 86400000);
+  return d.toISOString().slice(0,10);
+}
+
+function deadlineLabel(deadline) {
+  if (!deadline) return "Sem prazo";
+  const today = new Date(todayDate() + "T00:00:00Z");
+  const d = new Date(String(deadline).slice(0,10) + "T00:00:00Z");
+  const days = Math.ceil((d - today) / 86400000);
+  if (days < 0) return "Prazo encerrado";
+  if (days === 0) return "Encerra hoje";
+  if (days === 1) return "1 dia restante";
+  return `${days} dias restantes`;
+}
+
+async function expireMissions(db) {
+  const rows = await db.prepare(`
+    SELECT id,client_id FROM nexus_missions
+    WHERE funded=1 AND status='open' AND deadline IS NOT NULL AND date(deadline)<date('now')
+    LIMIT 20
+  `).all();
+  for (const m of (rows.results || [])) {
+    try { await closeMissionFunds(db, Number(m.id), Number(m.client_id), "Prazo encerrado"); } catch {}
+  }
+}
+
+async function closeMissionFunds(db, missionId, clientId, reason = "Missão fechada") {
+  const m = await db.prepare("SELECT * FROM nexus_missions WHERE id=? AND client_id=? LIMIT 1").bind(missionId,clientId).first();
+  if (!m) return false;
+  if (m.status === "closed") return true;
+
+  await ensureClientWallet(db, clientId);
+  const active = await db.prepare(`
+    SELECT COUNT(*) c FROM nexus_submissions
+    WHERE mission_id=? AND status IN ('started','submitted')
+  `).bind(missionId).first();
+
+  const slotCost = perSlotCost(m.reward, m.fee_rate);
+  const keep = roundMoney(Number(active?.c || 0) * slotCost);
+  const current = roundMoney(Number(m.reserved_remaining || 0));
+  const release = roundMoney(Math.max(0, current - keep));
+
+  const statements = [
+    db.prepare("UPDATE nexus_missions SET status='closed',reserved_remaining=? WHERE id=?").bind(Math.min(current,keep),missionId)
+  ];
+
+  if (release > 0) {
+    statements.push(
+      db.prepare(`
+        UPDATE nexus_client_wallet
+        SET available=available+?, reserved=MAX(0,reserved-?), updated_at=CURRENT_TIMESTAMP
+        WHERE user_id=?
+      `).bind(release,release,clientId),
+      db.prepare(`
+        INSERT INTO nexus_client_ledger(user_id,delta_available,delta_reserved,type,source_ref,description)
+        VALUES(?,?,?,'mission_release',?,?)
+      `).bind(clientId,release,-release,`release:${missionId}:${Date.now()}:${randomHex(3)}`,`${reason}: saldo não utilizado liberado`)
+    );
+  }
+
+  await db.batch(statements);
+  return true;
+}
+
+async function reopenMissionFunds(db, missionId, clientId) {
+  const m = await db.prepare("SELECT * FROM nexus_missions WHERE id=? AND client_id=? LIMIT 1").bind(missionId,clientId).first();
+  if (!m) return {ok:false,message:"Missão não encontrada."};
+  if (m.deadline && String(m.deadline).slice(0,10) < todayDate()) return {ok:false,message:"O prazo dessa missão já terminou."};
+  if (m.status === "open") return {ok:true};
+
+  const approved = await db.prepare("SELECT COUNT(*) c FROM nexus_submissions WHERE mission_id=? AND status='approved'").bind(missionId).first();
+  const desired = roundMoney(Math.max(0, Number(m.slots) - Number(approved?.c || 0)) * perSlotCost(m.reward,m.fee_rate));
+  const current = roundMoney(Number(m.reserved_remaining || 0));
+  const needed = roundMoney(Math.max(0, desired - current));
+
+  await ensureClientWallet(db, clientId);
+  if (needed > 0) {
+    const r = await db.prepare(`
+      UPDATE nexus_client_wallet SET available=available-?,reserved=reserved+?,updated_at=CURRENT_TIMESTAMP
+      WHERE user_id=? AND available>=?
+    `).bind(needed,needed,clientId,needed).run();
+    if (!r.meta?.changes) return {ok:false,message:`Saldo insuficiente para reabrir. Necessário: ${brl(needed)}.`};
+
+    await db.prepare(`
+      INSERT INTO nexus_client_ledger(user_id,delta_available,delta_reserved,type,source_ref,description)
+      VALUES(?,?,?,'mission_rereserve',?,?)
+    `).bind(clientId,-needed,needed,`reopen:${missionId}:${Date.now()}`,`Reserva para reabrir missão #${missionId}`).run();
+  }
+
+  await db.prepare("UPDATE nexus_missions SET status='open',reserved_remaining=? WHERE id=?").bind(desired,missionId).run();
+  return {ok:true};
+}
+
+async function getWorkerWallet(db, userId) {
+  const [available,pending,total,today,entries] = await Promise.all([
+    db.prepare("SELECT COALESCE(SUM(amount),0) v FROM nexus_wallet_ledger WHERE user_id=?").bind(userId).first(),
+    db.prepare(`
+      SELECT COALESCE(SUM(m.reward),0) v
+      FROM nexus_submissions s JOIN nexus_missions m ON m.id=s.mission_id
+      WHERE s.worker_id=? AND s.status='submitted'
+    `).bind(userId).first(),
+    db.prepare("SELECT COALESCE(SUM(amount),0) v FROM nexus_wallet_ledger WHERE user_id=? AND type='mission_reward'").bind(userId).first(),
+    db.prepare(`
+      SELECT COALESCE(SUM(amount),0) v FROM nexus_wallet_ledger
+      WHERE user_id=? AND type='mission_reward' AND date(created_at,'-3 hours')=date('now','-3 hours')
+    `).bind(userId).first(),
+    db.prepare(`
+      SELECT amount,type,description,created_at FROM nexus_wallet_ledger
+      WHERE user_id=? ORDER BY created_at DESC LIMIT 20
+    `).bind(userId).all()
+  ]);
+  return {
+    available:Number(available?.v||0),
+    pending:Number(pending?.v||0),
+    total:Number(total?.v||0),
+    today:Number(today?.v||0),
+    entries:entries.results||[]
+  };
+}
+
+async function getClientWallet(db, userId) {
+  await ensureClientWallet(db,userId);
+  const [wallet,spent,entries] = await Promise.all([
+    db.prepare("SELECT available,reserved FROM nexus_client_wallet WHERE user_id=?").bind(userId).first(),
+    db.prepare(`
+      SELECT COALESCE(SUM(m.reward*(1+m.fee_rate)),0) v
+      FROM nexus_submissions s JOIN nexus_missions m ON m.id=s.mission_id
+      WHERE m.client_id=? AND s.status='approved'
+    `).bind(userId).first(),
+    db.prepare(`
+      SELECT delta_available,delta_reserved,type,description,created_at
+      FROM nexus_client_ledger WHERE user_id=? ORDER BY created_at DESC LIMIT 20
+    `).bind(userId).all()
+  ]);
+  return {
+    available:Number(wallet?.available||0),
+    reserved:Number(wallet?.reserved||0),
+    spent:roundMoney(Number(spent?.v||0)),
+    entries:entries.results||[]
+  };
+}
+
+async function getReputation(db, user) {
+  const result = {worker:null,client:null};
+  if (canWorker(user)) {
+    const r = await db.prepare(`
+      SELECT
+        SUM(CASE WHEN status='approved' THEN 1 ELSE 0 END) approved,
+        SUM(CASE WHEN status='rejected' THEN 1 ELSE 0 END) rejected,
+        SUM(CASE WHEN status='submitted' THEN 1 ELSE 0 END) pending,
+        COUNT(*) total
+      FROM nexus_submissions WHERE worker_id=?
+    `).bind(user.id).first();
+    const approved=Number(r?.approved||0), rejected=Number(r?.rejected||0);
+    result.worker={approved,rejected,pending:Number(r?.pending||0),total:Number(r?.total||0),rate:(approved+rejected)?Math.round(approved/(approved+rejected)*100):100};
+  }
+  if (canClient(user)) {
+    const r = await db.prepare(`
+      SELECT
+        (SELECT COUNT(*) FROM nexus_missions WHERE client_id=?) missions,
+        SUM(CASE WHEN s.status='approved' THEN 1 ELSE 0 END) approved,
+        SUM(CASE WHEN s.status='rejected' THEN 1 ELSE 0 END) rejected
+      FROM nexus_missions m LEFT JOIN nexus_submissions s ON s.mission_id=m.id
+      WHERE m.client_id=?
+    `).bind(user.id,user.id).first();
+    const approved=Number(r?.approved||0), rejected=Number(r?.rejected||0);
+    result.client={missions:Number(r?.missions||0),approved,rejected,rate:(approved+rejected)?Math.round(approved/(approved+rejected)*100):100};
+  }
+  return result;
+}
+
+function feedOptions(url) {
+  const category = ["Pesquisa","Teste","Opinião","Levantamento"].includes(url.searchParams.get("category")) ? url.searchParams.get("category") : "";
+  const sort = ["recent","highest","deadline","vacancies"].includes(url.searchParams.get("sort")) ? url.searchParams.get("sort") : "recent";
+  const mode = url.searchParams.get("mode") === "list" ? "list" : "cards";
+  const page = Math.max(1,Math.min(500,Number(url.searchParams.get("page")||1)));
+  return {
+    q:clean(url.searchParams.get("q")||"",80),
+    category,sort,mode,page,
+    newonly:url.searchParams.get("newonly")==="1"
+  };
+}
+
+async function getFeedData(db, user, url) {
+  const o = feedOptions(url);
+  let where = `
+    m.status='open' AND m.funded=1
+    AND (m.deadline IS NULL OR date(m.deadline)>=date('now'))
+    AND m.client_id<>?
+    AND (SELECT COUNT(*) FROM nexus_submissions sx WHERE sx.mission_id=m.id AND sx.status IN ('started','submitted','approved')) < m.slots
+  `;
+  const binds=[user.id];
+
+  if (o.category) { where += " AND m.category=?"; binds.push(o.category); }
+  if (o.q) {
+    where += " AND (lower(m.title) LIKE ? OR lower(m.description) LIKE ? OR lower(m.instructions) LIKE ? OR lower(u.name) LIKE ?)";
+    const q=`%${o.q.toLowerCase()}%`; binds.push(q,q,q,q);
+  }
+  if (o.newonly) {
+    where += " AND NOT EXISTS(SELECT 1 FROM nexus_submissions sn WHERE sn.mission_id=m.id AND sn.worker_id=?)";
+    binds.push(user.id);
+  }
+
+  const order = o.sort==="highest" ? "m.reward DESC,m.created_at DESC"
+    : o.sort==="deadline" ? "date(m.deadline) ASC,m.created_at DESC"
+    : o.sort==="vacancies" ? `(m.slots-(SELECT COUNT(*) FROM nexus_submissions sv WHERE sv.mission_id=m.id AND sv.status IN ('started','submitted','approved'))) DESC,m.created_at DESC`
+    : "m.created_at DESC";
+
+  const count = await db.prepare(`
+    SELECT COUNT(*) c FROM nexus_missions m JOIN nexus_users u ON u.id=m.client_id WHERE ${where}
+  `).bind(...binds).first();
+
+  const offset=(o.page-1)*PAGE_SIZE;
+  const rows=await db.prepare(`
+    SELECT m.*,u.name client_name,
+      (SELECT COUNT(*) FROM nexus_submissions s WHERE s.mission_id=m.id AND s.status IN ('started','submitted','approved')) occupied,
+      (SELECT COUNT(*) FROM nexus_missions cm WHERE cm.client_id=m.client_id) client_missions,
+      (SELECT COUNT(*) FROM nexus_submissions ca JOIN nexus_missions mm ON mm.id=ca.mission_id WHERE mm.client_id=m.client_id AND ca.status='approved') client_approved
+    FROM nexus_missions m JOIN nexus_users u ON u.id=m.client_id
+    WHERE ${where}
+    ORDER BY ${order}
+    LIMIT ? OFFSET ?
+  `).bind(...binds,PAGE_SIZE,offset).all();
+
+  return {missions:rows.results||[],total:Number(count?.c||0),opts:o,pages:Math.max(1,Math.ceil(Number(count?.c||0)/PAGE_SIZE))};
+}
+
+async function getMySubmissions(db,userId,url) {
+  const allowed=["all","started","submitted","approved","rejected"];
+  const filter=allowed.includes(url.searchParams.get("status"))?url.searchParams.get("status"):"all";
+  let sql=`
+    SELECT s.*,m.title,m.category,m.reward,m.description,m.image_data,m.deadline,m.estimated_minutes
+    FROM nexus_submissions s JOIN nexus_missions m ON m.id=s.mission_id
+    WHERE s.worker_id=?`;
+  const binds=[userId];
+  if(filter!=="all"){sql+=" AND s.status=?";binds.push(filter);}
+  sql+=" ORDER BY s.created_at DESC LIMIT 100";
+  const rows=await db.prepare(sql).bind(...binds).all();
+  return {submissions:rows.results||[],filter};
+}
+
+async function getClientData(db,userId) {
+  const [missions,subs]=await Promise.all([
+    db.prepare(`
+      SELECT m.*,
+        (SELECT COUNT(*) FROM nexus_submissions s WHERE s.mission_id=m.id) submissions_count,
+        (SELECT COUNT(*) FROM nexus_submissions s WHERE s.mission_id=m.id AND s.status='approved') approved_count,
+        (SELECT COUNT(*) FROM nexus_submissions s WHERE s.mission_id=m.id AND s.status='submitted') pending_count
+      FROM nexus_missions m WHERE m.client_id=? ORDER BY m.created_at DESC LIMIT 100
+    `).bind(userId).all(),
+    db.prepare(`
+      SELECT s.*,w.name worker_name,m.title,m.reward,m.client_id,m.status mission_status
+      FROM nexus_submissions s
+      JOIN nexus_missions m ON m.id=s.mission_id
+      JOIN nexus_users w ON w.id=s.worker_id
+      WHERE m.client_id=?
+      ORDER BY CASE s.status WHEN 'submitted' THEN 0 ELSE 1 END,s.created_at DESC
+      LIMIT 150
+    `).bind(userId).all()
+  ]);
+  return {missions:missions.results||[],subs:subs.results||[]};
+}
+
+async function getAdminData(db) {
+  const [users,missions,stats,platform] = await Promise.all([
+    db.prepare(`
+      SELECT u.id,u.name,u.email,u.role,u.is_admin,u.is_blocked,u.created_at,
+             COALESCE(c.available,0) client_available,COALESCE(c.reserved,0) client_reserved
+      FROM nexus_users u LEFT JOIN nexus_client_wallet c ON c.user_id=u.id
+      ORDER BY u.created_at DESC LIMIT 100
+    `).all(),
+    db.prepare(`
+      SELECT m.id,m.title,m.status,m.reward,m.slots,m.final_cost,m.deadline,u.name client_name
+      FROM nexus_missions m LEFT JOIN nexus_users u ON u.id=m.client_id
+      ORDER BY m.created_at DESC LIMIT 100
+    `).all(),
+    db.prepare(`
+      SELECT
+        (SELECT COUNT(*) FROM nexus_users) users,
+        (SELECT COUNT(*) FROM nexus_missions WHERE status='open' AND funded=1) open_missions,
+        (SELECT COUNT(*) FROM nexus_submissions WHERE status='submitted') pending_reviews,
+        (SELECT COALESCE(SUM(reserved),0) FROM nexus_client_wallet) total_reserved
+    `).first(),
+    db.prepare("SELECT COALESCE(SUM(amount),0) v FROM nexus_platform_ledger").first()
+  ]);
+  return {users:users.results||[],missions:missions.results||[],stats:stats||{},platform:Number(platform?.v||0)};
+}
+
+function queryUrl(opts, changes={}) {
+  const p=new URLSearchParams();
+  p.set("view","home");
+  const merged={...opts,...changes};
+  if(merged.q)p.set("q",merged.q);
+  if(merged.category)p.set("category",merged.category);
+  if(merged.sort&&merged.sort!=="recent")p.set("sort",merged.sort);
+  if(merged.mode&&merged.mode!=="cards")p.set("mode",merged.mode);
+  if(merged.newonly)p.set("newonly","1");
+  if(merged.page&&merged.page>1)p.set("page",String(merged.page));
+  return "/?"+p.toString();
+}
+
 async function handleRegister(request, db) {
   const f = await request.formData();
-  const name = clean(f.get("name"), 80);
-  const email = clean(f.get("email"), 160).toLowerCase();
-  const password = String(f.get("password") || "");
+  const name = clean(f.get("name"),80);
+  const email = clean(f.get("email"),160).toLowerCase();
+  const password = String(f.get("password")||"");
   const role = ["worker","client","both"].includes(String(f.get("role"))) ? String(f.get("role")) : "worker";
 
-  if (name.length < 2) return redirect("/register?err=" + enc("Informe seu nome."), request);
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return redirect("/register?err=" + enc("E-mail inválido."), request);
-  if (password.length < 6) return redirect("/register?err=" + enc("A senha precisa ter pelo menos 6 caracteres."), request);
+  if(name.length<2) return redirect("/register?err="+enc("Informe seu nome."),request);
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return redirect("/register?err="+enc("E-mail inválido."),request);
+  if(password.length<6) return redirect("/register?err="+enc("A senha precisa ter pelo menos 6 caracteres."),request);
 
-  const exists = await db.prepare("SELECT id FROM nexus_users WHERE email=? LIMIT 1").bind(email).first();
-  if (exists) return redirect("/login?err=" + enc("Esse e-mail já está cadastrado."), request);
+  const exists=await db.prepare("SELECT id FROM nexus_users WHERE email=? LIMIT 1").bind(email).first();
+  if(exists) return redirect("/login?err="+enc("Esse e-mail já está cadastrado."),request);
 
-  const salt = randomHex(16);
-  const hash = await hashPassword(password, salt);
-  const r = await db.prepare(
-    "INSERT INTO nexus_users(name,email,password_hash,password_salt,role) VALUES(?,?,?,?,?)"
-  ).bind(name,email,hash,salt,role).run();
+  const salt=randomHex(16);
+  const hash=await hashPassword(password,salt);
+  const r=await db.prepare("INSERT INTO nexus_users(name,email,password_hash,password_salt,role) VALUES(?,?,?,?,?)")
+    .bind(name,email,hash,salt,role).run();
+  const userId=Number(r.meta?.last_row_id||0);
+  if(!userId) throw new Error("Não foi possível criar o usuário.");
 
-  const userId = Number(r.meta?.last_row_id || 0);
-  if (!userId) throw new Error("Não foi possível criar o usuário.");
-
-  return redirect("/login?msg=" + enc("Conta criada com sucesso. Agora entre com seu e-mail e senha."), request);
+  if(role==="client"||role==="both") await ensureClientWallet(db,userId);
+  return redirect("/login?msg="+enc("Conta criada com sucesso. Agora entre com seu e-mail e senha."),request);
 }
 
 async function handleLogin(request, db) {
-  const f = await request.formData();
-  const email = clean(f.get("email"), 160).toLowerCase();
-  const password = String(f.get("password") || "");
-  const row = await db.prepare("SELECT * FROM nexus_users WHERE email=? LIMIT 1").bind(email).first();
-  if (!row) return redirect("/login?err=" + enc("E-mail ou senha incorretos."), request);
+  const f=await request.formData();
+  const email=clean(f.get("email"),160).toLowerCase();
+  const password=String(f.get("password")||"");
+  const row=await db.prepare("SELECT * FROM nexus_users WHERE email=? LIMIT 1").bind(email).first();
+  if(!row) return redirect("/login?err="+enc("E-mail ou senha incorretos."),request);
+  if(Number(row.is_blocked||0)===1) return redirect("/login?err="+enc("Esta conta está suspensa."),request);
 
-  const hash = await hashPassword(password, row.password_salt);
-  if (!safeEqual(hash, row.password_hash)) {
-    return redirect("/login?err=" + enc("E-mail ou senha incorretos."), request);
-  }
+  const hash=await hashPassword(password,row.password_salt);
+  if(!safeEqual(hash,row.password_hash)) return redirect("/login?err="+enc("E-mail ou senha incorretos."),request);
 
-  const token = await createSession(db, row.id);
-  return redirect("/?msg=" + enc("Login realizado."), request, sessionCookie(token));
+  const token=await createSession(db,row.id);
+  return redirect("/?msg="+enc("Login realizado."),request,sessionCookie(token));
 }
 
 async function handleLogout(request, db) {
@@ -222,66 +621,104 @@ async function handleLogout(request, db) {
 }
 
 async function handleCreateMission(request, db, user) {
-  if (!canClient(user)) return redirect("/?view=create&err=" + enc("Seu perfil não pode publicar missões."), request);
+  if(!canClient(user)) return redirect("/?view=create&err="+enc("Seu perfil não pode publicar missões."),request);
 
-  const f = await request.formData();
-  const title = clean(f.get("title"), 100);
-  const category = ["Pesquisa","Teste","Opinião","Levantamento"].includes(String(f.get("category"))) ? String(f.get("category")) : "Pesquisa";
-  const description = clean(f.get("description"), 500);
-  const instructions = clean(f.get("instructions"), 1500);
-  const reward = Number(String(f.get("reward") || "0").replace(",", "."));
-  const slots = Math.floor(Number(f.get("slots")));
-  const image = String(f.get("image_data") || "");
+  const f=await request.formData();
+  const title=clean(f.get("title"),100);
+  const category=["Pesquisa","Teste","Opinião","Levantamento"].includes(String(f.get("category")))?String(f.get("category")):"Pesquisa";
+  const description=clean(f.get("description"),500);
+  const instructions=clean(f.get("instructions"),1500);
+  const reward=Number(String(f.get("reward")||"0").replace(",","."));
+  const slots=Math.floor(Number(f.get("slots")));
+  const estimated=Math.floor(Number(f.get("estimated_minutes")||5));
+  const deadline=clean(f.get("deadline"),10);
+  const image=String(f.get("image_data")||"");
 
-  if (title.length < 5 || description.length < 10 || instructions.length < 10) {
-    return redirect("/?view=create&err=" + enc("Preencha título, descrição e instruções com mais detalhes."), request);
-  }
-  if (!Number.isFinite(reward) || reward < MIN_REWARD || reward > 500) {
-    return redirect("/?view=create&err=" + enc("A recompensa mínima é R$ 2,50."), request);
-  }
-  if (!Number.isInteger(slots) || slots < 1 || slots > 500) {
-    return redirect("/?view=create&err=" + enc("Informe entre 1 e 500 vagas."), request);
-  }
-  if (image && (!image.startsWith("data:image/jpeg;base64,") || image.length > MAX_IMAGE_CHARS)) {
-    return redirect("/?view=create&err=" + enc("A imagem ficou grande demais. Escolha outra imagem."), request);
+  if(title.length<5||description.length<10||instructions.length<10) return redirect("/?view=create&err="+enc("Preencha título, descrição e instruções com mais detalhes."),request);
+  if(!Number.isFinite(reward)||reward<MIN_REWARD||reward>500) return redirect("/?view=create&err="+enc("A recompensa mínima é R$ 2,50."),request);
+  if(!Number.isInteger(slots)||slots<1||slots>500) return redirect("/?view=create&err="+enc("Informe entre 1 e 500 vagas."),request);
+  if(!Number.isInteger(estimated)||estimated<1||estimated>180) return redirect("/?view=create&err="+enc("O tempo estimado deve ficar entre 1 e 180 minutos."),request);
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(deadline)||deadline<todayDate()) return redirect("/?view=create&err="+enc("Escolha um prazo válido."),request);
+  if(image&&(!image.startsWith("data:image/jpeg;base64,")||image.length>MAX_IMAGE_CHARS)) return redirect("/?view=create&err="+enc("A imagem ficou grande demais."),request);
+
+  const total=finalMissionCost(reward,slots,PLATFORM_FEE_RATE);
+  await ensureClientWallet(db,user.id);
+
+  const reserve=await db.prepare(`
+    UPDATE nexus_client_wallet
+    SET available=available-?,reserved=reserved+?,updated_at=CURRENT_TIMESTAMP
+    WHERE user_id=? AND available>=?
+  `).bind(total,total,user.id,total).run();
+
+  if(!reserve.meta?.changes) {
+    const w=await db.prepare("SELECT available FROM nexus_client_wallet WHERE user_id=?").bind(user.id).first();
+    return redirect("/?view=create&err="+enc(`Saldo insuficiente. Custo final: ${brl(total)}. Saldo disponível: ${brl(w?.available||0)}.`),request);
   }
 
-  await db.prepare(`
-    INSERT INTO nexus_missions(client_id,title,category,description,instructions,reward,slots,image_data,status)
-    VALUES(?,?,?,?,?,?,?,?, 'open')
-  `).bind(user.id,title,category,description,instructions,reward,slots,image || null).run();
+  try {
+    const r=await db.prepare(`
+      INSERT INTO nexus_missions(
+        client_id,title,category,description,instructions,reward,slots,image_data,status,
+        deadline,estimated_minutes,fee_rate,final_cost,reserved_remaining,funded
+      ) VALUES(?,?,?,?,?,?,?,?,'open',?,?,?,?,?,1)
+    `).bind(user.id,title,category,description,instructions,reward,slots,image||null,deadline,estimated,PLATFORM_FEE_RATE,total,total).run();
+    const missionId=Number(r.meta?.last_row_id||0);
+    await db.prepare(`
+      INSERT INTO nexus_client_ledger(user_id,delta_available,delta_reserved,type,source_ref,description)
+      VALUES(?,?,?,'mission_reserve',?,?)
+    `).bind(user.id,-total,total,`reserve:${missionId}:${Date.now()}`,`Custo final reservado: ${title}`).run();
+  } catch(e) {
+    await db.prepare("UPDATE nexus_client_wallet SET available=available+?,reserved=MAX(0,reserved-?) WHERE user_id=?").bind(total,total,user.id).run();
+    throw e;
+  }
 
-  return redirect("/?view=client&msg=" + enc("Missão publicada com sucesso."), request);
+  return redirect("/?view=client&msg="+enc(`Missão publicada. Custo final reservado: ${brl(total)}.`),request);
 }
 
 async function handleStartMission(request, db, user, missionId) {
-  if (!canWorker(user)) return redirect("/?err=" + enc("Seu perfil não pode executar missões."), request);
+  if(!canWorker(user)) return redirect("/?err="+enc("Seu perfil não pode executar missões."),request);
 
-  const mission = await db.prepare("SELECT * FROM nexus_missions WHERE id=? LIMIT 1").bind(missionId).first();
-  if (!mission || mission.status !== "open") return redirect("/?err=" + enc("Missão indisponível."), request);
-  if (Number(mission.client_id) === Number(user.id)) return redirect("/?err=" + enc("Você não pode executar sua própria missão."), request);
+  const mission=await db.prepare("SELECT * FROM nexus_missions WHERE id=? LIMIT 1").bind(missionId).first();
+  if(!mission||mission.status!=="open"||Number(mission.funded||0)!==1) return redirect("/?err="+enc("Missão indisponível."),request);
+  if(mission.deadline&&String(mission.deadline).slice(0,10)<todayDate()) return redirect("/?err="+enc("O prazo dessa missão terminou."),request);
+  if(Number(mission.client_id)===Number(user.id)) return redirect("/?err="+enc("Você não pode executar sua própria missão."),request);
 
-  const occupied = await db.prepare(
-    "SELECT COUNT(*) c FROM nexus_submissions WHERE mission_id=? AND status IN ('started','submitted','approved')"
-  ).bind(missionId).first();
+  const occupied=await db.prepare("SELECT COUNT(*) c FROM nexus_submissions WHERE mission_id=? AND status IN ('started','submitted','approved')").bind(missionId).first();
+  if(Number(occupied?.c||0)>=Number(mission.slots)) return redirect("/?err="+enc("As vagas desta missão acabaram."),request);
 
-  if (Number(occupied?.c || 0) >= Number(mission.slots)) {
-    return redirect("/?err=" + enc("As vagas desta missão acabaram."), request);
+  const already=await db.prepare("SELECT id,status FROM nexus_submissions WHERE mission_id=? AND worker_id=? LIMIT 1").bind(missionId,user.id).first();
+  if(already) return redirect("/?view=mine&msg="+enc("Você já participou dessa missão."),request);
+
+  await db.prepare("INSERT INTO nexus_submissions(mission_id,worker_id,status) VALUES(?,?,'started')").bind(missionId,user.id).run();
+  return redirect("/?view=mine&msg="+enc("Missão aceita. Agora envie o trabalho."),request);
+}
+
+async function handleCancelSubmission(request, db, user, submissionId) {
+  if(!canWorker(user)) return redirect("/?view=mine&err="+enc("Perfil sem acesso."),request);
+  const s=await db.prepare(`
+    SELECT s.id,s.status,s.mission_id,m.client_id,m.status mission_status,m.reward,m.fee_rate,m.reserved_remaining
+    FROM nexus_submissions s JOIN nexus_missions m ON m.id=s.mission_id
+    WHERE s.id=? AND s.worker_id=? LIMIT 1
+  `).bind(submissionId,user.id).first();
+  if(!s||s.status!=="started") return redirect("/?view=mine&err="+enc("Essa participação não pode ser cancelada."),request);
+
+  await db.prepare("DELETE FROM nexus_submissions WHERE id=? AND worker_id=? AND status='started'").bind(submissionId,user.id).run();
+
+  if(s.mission_status==="closed") {
+    const amount=Math.min(roundMoney(Number(s.reserved_remaining||0)),perSlotCost(s.reward,s.fee_rate));
+    if(amount>0) {
+      await ensureClientWallet(db,s.client_id);
+      await db.batch([
+        db.prepare("UPDATE nexus_missions SET reserved_remaining=MAX(0,reserved_remaining-?) WHERE id=?").bind(amount,s.mission_id),
+        db.prepare("UPDATE nexus_client_wallet SET available=available+?,reserved=MAX(0,reserved-?),updated_at=CURRENT_TIMESTAMP WHERE user_id=?").bind(amount,amount,s.client_id),
+        db.prepare(`
+          INSERT INTO nexus_client_ledger(user_id,delta_available,delta_reserved,type,source_ref,description)
+          VALUES(?,?,?,'cancel_release',?,?)
+        `).bind(s.client_id,amount,-amount,`cancel:${submissionId}:${Date.now()}`,"Participação cancelada: reserva liberada")
+      ]);
+    }
   }
-
-  const already = await db.prepare(
-    "SELECT id,status FROM nexus_submissions WHERE mission_id=? AND worker_id=? LIMIT 1"
-  ).bind(missionId,user.id).first();
-
-  if (already) {
-    return redirect("/?view=mine&msg=" + enc("Você já iniciou essa missão."), request);
-  }
-
-  await db.prepare(
-    "INSERT INTO nexus_submissions(mission_id,worker_id,status) VALUES(?,?,'started')"
-  ).bind(missionId,user.id).run();
-
-  return redirect("/?view=mine&msg=" + enc("Missão aceita. Agora envie o trabalho."), request);
+  return redirect("/?view=mine&msg="+enc("Participação cancelada."),request);
 }
 
 async function handleSubmitWork(request, db, user, submissionId) {
@@ -307,181 +744,257 @@ async function handleSubmitWork(request, db, user, submissionId) {
 }
 
 async function handleReview(request, db, user, submissionId, action) {
-  if (!canClient(user)) return redirect("/?view=client&err=" + enc("Perfil sem acesso."), request);
+  if(!canClient(user)) return redirect("/?view=client&err="+enc("Perfil sem acesso."),request);
 
-  const s = await db.prepare(`
-    SELECT s.id,s.worker_id,s.status,m.reward,m.client_id,m.title
+  const s=await db.prepare(`
+    SELECT s.id,s.worker_id,s.status,s.mission_id,m.reward,m.client_id,m.title,m.status mission_status,
+           m.fee_rate,m.reserved_remaining
     FROM nexus_submissions s JOIN nexus_missions m ON m.id=s.mission_id
     WHERE s.id=? AND m.client_id=? LIMIT 1
   `).bind(submissionId,user.id).first();
 
-  if (!s) return redirect("/?view=client&err=" + enc("Envio não encontrado."), request);
-  if (s.status !== "submitted") return redirect("/?view=client&err=" + enc("Esse envio já foi revisado."), request);
+  if(!s) return redirect("/?view=client&err="+enc("Envio não encontrado."),request);
+  if(s.status!=="submitted") return redirect("/?view=client&err="+enc("Esse envio já foi revisado."),request);
 
-  if (action === "reject") {
-    await db.prepare(
-      "UPDATE nexus_submissions SET status='rejected',reviewed_at=CURRENT_TIMESTAMP WHERE id=? AND status='submitted'"
-    ).bind(submissionId).run();
-    return redirect("/?view=client&msg=" + enc("Trabalho rejeitado."), request);
+  const cost=perSlotCost(s.reward,s.fee_rate);
+  const fee=roundMoney(cost-Number(s.reward));
+
+  if(action==="reject") {
+    await db.prepare("UPDATE nexus_submissions SET status='rejected',reviewed_at=CURRENT_TIMESTAMP WHERE id=? AND status='submitted'").bind(submissionId).run();
+
+    // Se a missão já está fechada, essa vaga não será reutilizada e a reserva volta ao contratante.
+    if(s.mission_status==="closed") {
+      const refund=Math.min(cost,roundMoney(Number(s.reserved_remaining||0)));
+      if(refund>0) {
+        await ensureClientWallet(db,s.client_id);
+        await db.batch([
+          db.prepare("UPDATE nexus_missions SET reserved_remaining=MAX(0,reserved_remaining-?) WHERE id=?").bind(refund,s.mission_id),
+          db.prepare("UPDATE nexus_client_wallet SET available=available+?,reserved=MAX(0,reserved-?),updated_at=CURRENT_TIMESTAMP WHERE user_id=?").bind(refund,refund,s.client_id),
+          db.prepare(`
+            INSERT INTO nexus_client_ledger(user_id,delta_available,delta_reserved,type,source_ref,description)
+            VALUES(?,?,?,'rejection_release',?,?)
+          `).bind(s.client_id,refund,-refund,`reject:${submissionId}:${Date.now()}`,"Trabalho rejeitado em missão fechada: reserva liberada")
+        ]);
+      }
+    }
+    return redirect("/?view=client&msg="+enc("Trabalho rejeitado."),request);
   }
 
+  if(Number(s.reserved_remaining||0)+0.001<cost) return redirect("/?view=client&err="+enc("A reserva dessa missão é insuficiente. Verifique o saldo."),request);
+
+  await ensureClientWallet(db,s.client_id);
   await db.batch([
+    db.prepare("UPDATE nexus_submissions SET status='approved',reviewed_at=CURRENT_TIMESTAMP WHERE id=? AND status='submitted'").bind(submissionId),
+    db.prepare("UPDATE nexus_missions SET reserved_remaining=MAX(0,reserved_remaining-?) WHERE id=?").bind(cost,s.mission_id),
+    db.prepare("UPDATE nexus_client_wallet SET reserved=MAX(0,reserved-?),updated_at=CURRENT_TIMESTAMP WHERE user_id=?").bind(cost,s.client_id),
     db.prepare(`
       INSERT OR IGNORE INTO nexus_wallet_ledger(user_id,amount,type,source_ref,description)
       VALUES(?,?,'mission_reward',?,?)
     `).bind(s.worker_id,Number(s.reward),`submission:${submissionId}`,`Missão aprovada: ${clean(s.title,100)}`),
-    db.prepare(
-      "UPDATE nexus_submissions SET status='approved',reviewed_at=CURRENT_TIMESTAMP WHERE id=? AND status='submitted'"
-    ).bind(submissionId)
+    db.prepare(`
+      INSERT OR IGNORE INTO nexus_platform_ledger(amount,mission_id,submission_id,source_ref,description)
+      VALUES(?,?,?,?,?)
+    `).bind(fee,s.mission_id,submissionId,`fee:${submissionId}`,`Receita Nexus: ${clean(s.title,100)}`),
+    db.prepare(`
+      INSERT INTO nexus_client_ledger(user_id,delta_available,delta_reserved,type,source_ref,description)
+      VALUES(?,0,?,'mission_approved',?,?)
+    `).bind(s.client_id,-cost,`approved:${submissionId}:${Date.now()}`,`Trabalho aprovado: ${clean(s.title,100)}`)
   ]);
 
-  return redirect("/?view=client&msg=" + enc("Trabalho aprovado e recompensa creditada."), request);
+  return redirect("/?view=client&msg="+enc(`Trabalho aprovado. ${brl(s.reward)} creditados ao trabalhador.`),request);
 }
 
 async function handleMissionStatus(request, db, user, missionId, status) {
-  if (!canClient(user)) return redirect("/?view=client&err=" + enc("Perfil sem acesso."), request);
-  await db.prepare("UPDATE nexus_missions SET status=? WHERE id=? AND client_id=?").bind(status,missionId,user.id).run();
-  return redirect("/?view=client&msg=" + enc(status === "open" ? "Missão reaberta." : "Missão fechada."), request);
+  if(!canClient(user)) return redirect("/?view=client&err="+enc("Perfil sem acesso."),request);
+  if(status==="closed") {
+    const ok=await closeMissionFunds(db,missionId,user.id,"Missão fechada pelo contratante");
+    return redirect("/?view=client&"+(ok?"msg="+enc("Missão fechada e saldo não utilizado liberado."):"err="+enc("Missão não encontrada.")),request);
+  }
+  const r=await reopenMissionFunds(db,missionId,user.id);
+  return redirect("/?view=client&"+(r.ok?"msg="+enc("Missão reaberta e saldo novamente reservado."):"err="+enc(r.message)),request);
+}
+
+async function handleAdminClaim(request, db, user) {
+  const c=await db.prepare("SELECT COUNT(*) c FROM nexus_users WHERE is_admin=1").first();
+  if(Number(c?.c||0)>0) return redirect("/?view=profile&err="+enc("O administrador inicial já foi configurado."),request);
+  await db.prepare("UPDATE nexus_users SET is_admin=1 WHERE id=?").bind(user.id).run();
+  return redirect("/?view=admin&msg="+enc("Painel administrativo ativado para sua conta."),request);
+}
+
+async function handleAdminUserAction(request, db, user, targetId, action) {
+  if(!user.is_admin) return redirect("/?err="+enc("Acesso administrativo necessário."),request);
+  const target=await db.prepare("SELECT id,name,role,is_admin FROM nexus_users WHERE id=? LIMIT 1").bind(targetId).first();
+  if(!target) return redirect("/?view=admin&err="+enc("Usuário não encontrado."),request);
+
+  if(action==="block"||action==="unblock") {
+    if(Number(target.is_admin||0)===1) return redirect("/?view=admin&err="+enc("Não é permitido bloquear um administrador."),request);
+    await db.prepare("UPDATE nexus_users SET is_blocked=? WHERE id=?").bind(action==="block"?1:0,targetId).run();
+    return redirect("/?view=admin&msg="+enc(action==="block"?"Usuário bloqueado.":"Usuário desbloqueado."),request);
+  }
+
+  if(action==="credit") {
+    if(!["client","both"].includes(String(target.role))) return redirect("/?view=admin&err="+enc("Saldo de contratante só pode ser adicionado a perfis contratante ou os dois."),request);
+    const f=await request.formData();
+    const amount=roundMoney(Number(String(f.get("amount")||"0").replace(",",".")));
+    if(!Number.isFinite(amount)||amount<MIN_REWARD||amount>100000) return redirect("/?view=admin&err="+enc("Informe um crédito entre R$ 2,50 e R$ 100.000."),request);
+    await ensureClientWallet(db,targetId);
+    await db.batch([
+      db.prepare("UPDATE nexus_client_wallet SET available=available+?,updated_at=CURRENT_TIMESTAMP WHERE user_id=?").bind(amount,targetId),
+      db.prepare(`
+        INSERT INTO nexus_client_ledger(user_id,delta_available,delta_reserved,type,source_ref,description)
+        VALUES(?,?,0,'admin_credit',?,?)
+      `).bind(targetId,amount,`credit:${targetId}:${Date.now()}:${randomHex(3)}`,"Crédito interno adicionado pelo administrador")
+    ]);
+    return redirect("/?view=admin&msg="+enc(`${brl(amount)} adicionados ao saldo interno de ${target.name}.`),request);
+  }
+
+  return redirect("/?view=admin&err="+enc("Ação inválida."),request);
+}
+
+async function handleAdminMissionClose(request, db, user, missionId) {
+  if(!user.is_admin) return redirect("/?err="+enc("Acesso administrativo necessário."),request);
+  const m=await db.prepare("SELECT client_id FROM nexus_missions WHERE id=? LIMIT 1").bind(missionId).first();
+  if(!m) return redirect("/?view=admin&err="+enc("Missão não encontrada."),request);
+  await closeMissionFunds(db,missionId,Number(m.client_id),"Missão encerrada pelo administrador");
+  return redirect("/?view=admin&msg="+enc("Missão encerrada pelo administrador."),request);
 }
 
 async function renderDashboard(request, db, user, url) {
-  if (!user || !user.id) return redirect("/login?err=" + enc("Sua sessão não foi carregada. Entre novamente."), request);
+  if(!user||!user.id) return redirect("/login?err="+enc("Sua sessão não foi carregada. Entre novamente."),request);
 
-  let view = ["home","mine","create","client","profile"].includes(url.searchParams.get("view"))
-    ? url.searchParams.get("view") : "home";
+  let view=["home","mine","create","client","profile","admin"].includes(url.searchParams.get("view"))?url.searchParams.get("view"):"home";
+  if(user.role==="worker"&&["create","client"].includes(view)) return redirect("/?view=home&err="+enc("Essa área é exclusiva para contratantes."),request);
+  if(user.role==="client"&&view==="mine") return redirect("/?view=home&err="+enc("Essa área é exclusiva para trabalhadores."),request);
+  if(view==="admin"&&!user.is_admin) return redirect("/?view=profile&err="+enc("Acesso administrativo necessário."),request);
 
-  // Trava real por perfil, inclusive se a pessoa digitar a URL manualmente.
-  if (user.role === "worker" && ["create","client"].includes(view)) {
-    return redirect("/?view=home&err=" + enc("Essa área é exclusiva para contratantes."), request);
+  const msg=url.searchParams.get("msg")||"";
+  const err=url.searchParams.get("err")||"";
+  const reputation=await getReputation(db,user);
+
+  let content="";
+  if(view==="home") {
+    if(user.role==="client") {
+      const [data,wallet]=await Promise.all([getClientData(db,user.id),getClientWallet(db,user.id)]);
+      content=renderClientHome(user,data.missions,data.subs,wallet);
+    } else {
+      const [feed,wallet]=await Promise.all([getFeedData(db,user,url),getWorkerWallet(db,user.id)]);
+      content=renderHome(user,feed,wallet);
+    }
+  } else if(view==="mine") {
+    const [mine,wallet]=await Promise.all([getMySubmissions(db,user.id,url),getWorkerWallet(db,user.id)]);
+    content=renderMine(user,mine,wallet);
+  } else if(view==="create") {
+    content=renderCreate(user,await getClientWallet(db,user.id));
+  } else if(view==="client") {
+    const [data,wallet]=await Promise.all([getClientData(db,user.id),getClientWallet(db,user.id)]);
+    content=renderClient(user,data.missions,data.subs,wallet);
+  } else if(view==="profile") {
+    const workerWallet=canWorker(user)?await getWorkerWallet(db,user.id):null;
+    const clientWallet=canClient(user)?await getClientWallet(db,user.id):null;
+    const admins=await db.prepare("SELECT COUNT(*) c FROM nexus_users WHERE is_admin=1").first();
+    content=renderProfile(user,workerWallet,clientWallet,reputation,Number(admins?.c||0));
+  } else if(view==="admin") {
+    content=renderAdmin(user,await getAdminData(db));
   }
-  if (user.role === "client" && view === "mine") {
-    return redirect("/?view=home&err=" + enc("Essa área é exclusiva para trabalhadores."), request);
-  }
 
-  const msg = url.searchParams.get("msg") || "";
-  const err = url.searchParams.get("err") || "";
-
-  const [wallet, today, missions, mine, clientMissions, clientSubs] = await Promise.all([
-    db.prepare("SELECT COALESCE(SUM(amount),0) v FROM nexus_wallet_ledger WHERE user_id=?").bind(user.id).first(),
-    db.prepare(`
-      SELECT COALESCE(SUM(amount),0) v FROM nexus_wallet_ledger
-      WHERE user_id=? AND date(created_at,'-3 hours')=date('now','-3 hours')
-    `).bind(user.id).first(),
-    db.prepare(`
-      SELECT m.*, u.name client_name,
-        (SELECT COUNT(*) FROM nexus_submissions s WHERE s.mission_id=m.id AND s.status IN ('started','submitted','approved')) occupied
-      FROM nexus_missions m LEFT JOIN nexus_users u ON u.id=m.client_id
-      WHERE m.status='open'
-      ORDER BY m.created_at DESC LIMIT 100
-    `).all(),
-    canWorker(user) ? db.prepare(`
-      SELECT s.*,m.title,m.category,m.reward,m.description,m.image_data
-      FROM nexus_submissions s JOIN nexus_missions m ON m.id=s.mission_id
-      WHERE s.worker_id=? ORDER BY s.created_at DESC
-    `).bind(user.id).all() : Promise.resolve({results:[]}),
-    canClient(user) ? db.prepare(`
-      SELECT m.*,
-        (SELECT COUNT(*) FROM nexus_submissions s WHERE s.mission_id=m.id) submissions_count,
-        (SELECT COUNT(*) FROM nexus_submissions s WHERE s.mission_id=m.id AND s.status='approved') approved_count
-      FROM nexus_missions m WHERE m.client_id=? ORDER BY m.created_at DESC
-    `).bind(user.id).all() : Promise.resolve({results:[]}),
-    canClient(user) ? db.prepare(`
-      SELECT s.*,w.name worker_name,m.title,m.reward,m.client_id
-      FROM nexus_submissions s
-      JOIN nexus_missions m ON m.id=s.mission_id
-      JOIN nexus_users w ON w.id=s.worker_id
-      WHERE m.client_id=?
-      ORDER BY CASE s.status WHEN 'submitted' THEN 0 ELSE 1 END, s.created_at DESC
-    `).bind(user.id).all() : Promise.resolve({results:[]})
-  ]);
-
-  const balance = Number(wallet?.v || 0);
-  const earnedToday = Number(today?.v || 0);
-  const progress = Math.min(100, Math.max(0, earnedToday / DAILY_GOAL * 100));
-
-  const body = `
+  const body=`
     <div class="app">
-      <header>
-        <div class="toprow">
-          <a class="brand" href="/">BERN <b>NEXUS</b></a>
-          <div class="head-user">
-            <span class="head-name">${esc(user.name || "Usuário")}</span>
-            <span class="pill">${roleLabel(user.role)}</span>
-          </div>
+      <header><div class="toprow">
+        <a class="brand" href="/">BERN <b>NEXUS</b></a>
+        <div class="head-user">
+          <span class="head-name">${esc(user.name||"Usuário")}</span>
+          ${user.is_admin?`<span class="pill adminpill">ADMIN</span>`:""}
+          <span class="pill">${roleLabel(user.role)}</span>
         </div>
-      </header>
-
+      </div></header>
       <main>
-        ${msg ? `<div class="flash ok">${esc(msg)}</div>` : ""}
-        ${err ? `<div class="flash err">${esc(err)}</div>` : ""}
-
-        ${view === "home" ? (user.role === "client"
-          ? renderClientHome(user, clientMissions.results || [], clientSubs.results || [])
-          : renderHome(user, missions.results || [], earnedToday, progress)) : ""}
-        ${view === "mine" ? renderMine(user, mine.results || []) : ""}
-        ${view === "create" ? renderCreate(user) : ""}
-        ${view === "client" ? renderClient(user, clientMissions.results || [], clientSubs.results || []) : ""}
-        ${view === "profile" ? renderProfile(user, balance, earnedToday) : ""}
+        ${msg?`<div class="flash ok">${esc(msg)}</div>`:""}
+        ${err?`<div class="flash err">${esc(err)}</div>`:""}
+        ${content}
       </main>
-
-      ${renderNav(view, user)}
-    </div>
-  `;
-
-  return page("BERN NEXUS", body);
+      ${renderNav(view,user)}
+    </div>`;
+  return page("BERN NEXUS",body);
 }
 
-function renderHome(user, missions, earnedToday, progress) {
-  const available = missions.filter(m =>
-    Number(m.client_id) !== Number(user.id) &&
-    Number(m.occupied || 0) < Number(m.slots)
-  );
-
+function renderHome(user, feed, wallet) {
+  const o=feed.opts;
+  const progress=Math.min(100,Math.max(0,wallet.today/DAILY_GOAL*100));
   return `
     <section class="hero">
       <h1>Ganhe fazendo<br>pequenas missões.</h1>
-      <p class="muted">Pesquisas, testes e tarefas digitais rápidas feitas por pessoas reais.</p>
+      <p class="muted">Encontre tarefas rapidamente, filtre e escolha as melhores para você.</p>
     </section>
 
     <section class="goal">
       <div class="goalrow">
-        <div>
-          <small>Ganhos aprovados hoje</small>
-          <div class="money">${brl(earnedToday)}</div>
-        </div>
-        <div class="goalright">
-          <small>Meta visual</small>
-          <b>R$ 50/dia</b>
-        </div>
+        <div><small>Ganhos aprovados hoje</small><div class="money">${brl(wallet.today)}</div></div>
+        <div class="goalright"><small>Meta visual</small><b>R$ 50/dia</b></div>
       </div>
       <div class="bar"><i style="width:${progress}%"></i></div>
-      <div class="goaltext">${earnedToday >= DAILY_GOAL ? "Meta atingida hoje." : `${brl(DAILY_GOAL-earnedToday)} para chegar à meta visual.`}</div>
+      <div class="goaltext">${wallet.today>=DAILY_GOAL?"Meta atingida hoje.":`${brl(DAILY_GOAL-wallet.today)} para chegar à meta visual.`}</div>
     </section>
 
-    <div class="notice">A meta de R$ 50/dia não é garantia de renda. Ela depende da quantidade de missões disponíveis e da aprovação dos trabalhos.</div>
+    <div class="notice">A meta de R$ 50/dia não é garantia de renda. Ela depende de missões disponíveis e aprovação.</div>
 
-    <div class="section-title"><h2>Missões disponíveis</h2><span>${available.length}</span></div>
-    <div class="grid">
-      ${available.length ? available.map(m => missionCard(m, user)).join("") : `<div class="empty">Nenhuma missão disponível agora.</div>`}
+    <form class="filter-panel" method="get">
+      <input type="hidden" name="view" value="home">
+      <input type="hidden" name="mode" value="${esc(o.mode)}">
+      <div class="filter-search">
+        <label>Buscar missão</label>
+        <input class="field" name="q" value="${esc(o.q)}" placeholder="Ex.: landing page, pesquisa, Instagram">
+      </div>
+      <div class="filter-grid">
+        <div><label>Categoria</label><select class="field" name="category">
+          ${option("", "Todas", o.category)}
+          ${option("Pesquisa","Pesquisa",o.category)}
+          ${option("Teste","Teste",o.category)}
+          ${option("Opinião","Opinião",o.category)}
+          ${option("Levantamento","Levantamento",o.category)}
+        </select></div>
+        <div><label>Ordenar</label><select class="field" name="sort">
+          ${option("recent","Mais recentes",o.sort)}
+          ${option("highest","Maior recompensa",o.sort)}
+          ${option("deadline","Menor prazo",o.sort)}
+          ${option("vacancies","Mais vagas",o.sort)}
+        </select></div>
+        <div><label>Participação</label><select class="field" name="newonly">
+          <option value="">Todas disponíveis</option>
+          <option value="1" ${o.newonly?"selected":""}>Ainda não iniciei</option>
+        </select></div>
+      </div>
+      <div class="filter-actions"><button class="btn primary">Aplicar filtros</button><a class="btn secondary linkbtn nomargin" href="/?view=home">Limpar</a></div>
+    </form>
+
+    <div class="toolbar">
+      <div><b>${feed.total}</b> missões encontradas</div>
+      <div class="view-switch">
+        <a class="${o.mode==="cards"?"active":""}" href="${queryUrl(o,{mode:"cards",page:1})}">▦ Cards</a>
+        <a class="${o.mode==="list"?"active":""}" href="${queryUrl(o,{mode:"list",page:1})}">☷ Lista</a>
+      </div>
     </div>
+
+    ${o.mode==="list"
+      ? `<div class="mission-list">${feed.missions.length?feed.missions.map(m=>missionListRow(m,user)).join(""):`<div class="empty">Nenhuma missão disponível com esses filtros.</div>`}</div>`
+      : `<div class="grid">${feed.missions.length?feed.missions.map(m=>missionCard(m,user)).join(""):`<div class="empty">Nenhuma missão disponível com esses filtros.</div>`}</div>`
+    }
+
+    ${renderPagination(feed)}
   `;
 }
 
-function renderClientHome(user, missions, subs) {
-  const openCount = missions.filter(m => m.status === "open").length;
-  const waiting = subs.filter(s => s.status === "submitted").length;
-  const approved = subs.filter(s => s.status === "approved").length;
-
+function renderClientHome(user, missions, subs, wallet) {
+  const openCount=missions.filter(m=>m.status==="open").length;
+  const waiting=subs.filter(s=>s.status==="submitted").length;
+  const approved=subs.filter(s=>s.status==="approved").length;
   return `
-    <section class="hero">
-      <h1>Seu painel de missões.</h1>
-      <p class="muted">Publique tarefas e acompanhe os trabalhos recebidos.</p>
-    </section>
+    <section class="hero"><h1>Seu painel de missões.</h1><p class="muted">Publique tarefas e acompanhe os trabalhos recebidos.</p></section>
 
-    <div class="client-summary">
-      <div class="summary-box"><small>Missões abertas</small><b>${openCount}</b></div>
-      <div class="summary-box"><small>Aguardando aprovação</small><b>${waiting}</b></div>
-      <div class="summary-box"><small>Trabalhos aprovados</small><b>${approved}</b></div>
+    <div class="metric-grid">
+      ${metric("Saldo disponível",brl(wallet.available))}
+      ${metric("Saldo reservado",brl(wallet.reserved))}
+      ${metric("Missões abertas",openCount)}
+      ${metric("Aguardando aprovação",waiting)}
     </div>
 
     <div class="row action-row">
@@ -489,224 +1002,294 @@ function renderClientHome(user, missions, subs) {
       <a class="btn secondary wide linkbtn nomargin" href="/?view=client">Ver trabalhos</a>
     </div>
 
-    <div class="notice">Este perfil é de contratante. O feed de missões para ganhar dinheiro fica oculto neste perfil.</div>
-
     <div class="section-title"><h2>Suas missões recentes</h2><span>${missions.length}</span></div>
     <div class="grid">
-      ${missions.length ? missions.slice(0,5).map(m => `
-        <article class="card">
-          ${m.image_data ? `<img class="cardimg" src="${m.image_data}" alt="">` : ""}
-          <div class="cardbody">
-            <div class="meta"><span class="tag">${esc(m.category).toUpperCase()}</span><span class="reward">${brl(m.reward)}</span></div>
-            <h3>${esc(m.title)}</h3>
-            <div class="stats">
-              <span>${Number(m.submissions_count||0)} participações</span>
-              <span>${Number(m.approved_count||0)} aprovadas</span>
-              <span>${esc(m.status)}</span>
-            </div>
-          </div>
-        </article>
-      `).join("") : `<div class="empty">Você ainda não publicou nenhuma missão.</div>`}
+      ${missions.length?missions.slice(0,6).map(m=>clientMissionCard(m)).join(""):`<div class="empty">Você ainda não publicou nenhuma missão.</div>`}
     </div>
   `;
 }
 
 function missionCard(m, user) {
-  const left = Math.max(0, Number(m.slots)-Number(m.occupied||0));
+  const left=Math.max(0,Number(m.slots)-Number(m.occupied||0));
   return `
     <article class="card">
-      ${m.image_data ? `<img class="cardimg" src="${m.image_data}" alt="">` : ""}
+      ${m.image_data?`<img class="cardimg" src="${m.image_data}" alt="">`:""}
       <div class="cardbody">
         <div class="meta"><span class="tag">${esc(m.category).toUpperCase()}</span><span class="reward">${brl(m.reward)}</span></div>
         <h3>${esc(m.title)}</h3>
         <p>${esc(m.description)}</p>
         <div class="instruction"><b>O que fazer:</b><br>${esc(m.instructions)}</div>
-        <div class="stats"><span>👤 ${esc(m.client_name || "Contratante")}</span><span>🎯 ${left} vagas</span></div>
-        ${canWorker(user) ? `
-          <form method="post" action="/missions/${m.id}/start">
-            <button class="btn primary wide">Fazer missão</button>
-          </form>` : `<div class="notice">Seu perfil é apenas de contratante.</div>`}
+        <div class="stats">
+          <span>⏱ ${Number(m.estimated_minutes||5)} min</span>
+          <span>🎯 ${left} vagas</span>
+          <span>📅 ${esc(deadlineLabel(m.deadline))}</span>
+        </div>
+        <div class="contractor-line">👤 ${esc(m.client_name||"Contratante")} · ${Number(m.client_approved||0)} trabalhos aprovados</div>
+        <form method="post" action="/missions/${m.id}/start"><button class="btn primary wide">Fazer missão · você recebe ${brl(m.reward)}</button></form>
       </div>
-    </article>
-  `;
+    </article>`;
 }
 
-function renderMine(user, subs) {
-  if (!canWorker(user)) return denied("Seu perfil não está habilitado para executar missões.");
+function renderMine(user, mine, wallet) {
+  if(!canWorker(user)) return denied("Seu perfil não está habilitado para executar missões.");
+  const f=mine.filter;
+  const tab=(value,label)=>`<a class="${f===value?"active":""}" href="/?view=mine&status=${value}">${label}</a>`;
   return `
-    <section class="hero"><h1>Minhas missões</h1><p class="muted">Envie seu trabalho e acompanhe a aprovação.</p></section>
+    <section class="hero"><h1>Minhas missões</h1><p class="muted">Acompanhe cada etapa sem misturar tarefas em andamento e concluídas.</p></section>
+
+    <div class="metric-grid">
+      ${metric("Disponível",brl(wallet.available))}
+      ${metric("Em análise",brl(wallet.pending))}
+      ${metric("Total ganho",brl(wallet.total))}
+    </div>
+
+    <div class="status-tabs">
+      ${tab("all","Todas")}${tab("started","Em andamento")}${tab("submitted","Enviadas")}${tab("approved","Aprovadas")}${tab("rejected","Rejeitadas")}
+    </div>
+
     <div class="grid">
-      ${subs.length ? subs.map(s => `
+      ${mine.submissions.length?mine.submissions.map(s=>`
         <article class="card">
-          ${s.image_data ? `<img class="cardimg" src="${s.image_data}" alt="">` : ""}
+          ${s.image_data?`<img class="cardimg" src="${s.image_data}" alt="">`:""}
           <div class="cardbody">
-            <div class="meta">
-              <span class="status ${esc(s.status)}">${statusText(s.status)}</span>
-              <span class="reward">${brl(s.reward)}</span>
-            </div>
+            <div class="meta"><span class="status ${esc(s.status)}">${statusText(s.status)}</span><span class="reward">${brl(s.reward)}</span></div>
             <h3>${esc(s.title)}</h3>
-            <p>${esc(s.description)}</p>
-            ${s.status === "started" ? `
+            <div class="stats"><span>⏱ ${Number(s.estimated_minutes||5)} min</span><span>📅 ${esc(deadlineLabel(s.deadline))}</span></div>
+            ${s.status==="started"?`
               <form method="post" action="/submissions/${s.id}/submit" class="image-form">
                 <label>Descreva o trabalho realizado</label>
                 <textarea class="field" name="answer" required minlength="3" placeholder="Digite sua resposta, resultado ou comprovação..."></textarea>
                 <label>Imagem de comprovante (opcional)</label>
                 <input class="field image-input" type="file" accept="image/jpeg,image/png,image/webp">
-                <input type="hidden" name="proof_image" class="image-data">
-                <img class="preview" alt="">
+                <input type="hidden" name="proof_image" class="image-data"><img class="preview" alt="">
                 <button class="btn primary wide">Enviar para aprovação</button>
               </form>
-            ` : `
-              ${s.answer ? `<div class="answer"><b>Sua resposta:</b><br>${esc(s.answer)}</div>` : ""}
-              ${s.proof_image ? `<img class="proof" src="${s.proof_image}" alt="">` : ""}
+              <form method="post" action="/submissions/${s.id}/cancel"><button class="btn secondary wide topgap">Cancelar participação</button></form>
+            `:`
+              ${s.answer?`<div class="answer"><b>Sua resposta:</b><br>${esc(s.answer)}</div>`:""}
+              ${s.proof_image?`<img class="proof" src="${s.proof_image}" alt="">`:""}
             `}
           </div>
-        </article>
-      `).join("") : `<div class="empty">Você ainda não iniciou nenhuma missão.</div>`}
-    </div>
-  `;
+        </article>`).join(""):`<div class="empty">Nenhuma missão nesta aba.</div>`}
+    </div>`;
 }
 
-function renderCreate(user) {
-  if (!canClient(user)) return denied("Seu perfil foi criado apenas para realizar missões.");
+function renderCreate(user, wallet) {
+  if(!canClient(user)) return denied("Seu perfil foi criado apenas para realizar missões.");
+  const defaultDeadline=datePlusDays(7);
   return `
-    <section class="hero"><h1>Publicar missão</h1><p class="muted">Crie uma pequena tarefa para pessoas reais realizarem.</p></section>
+    <section class="hero"><h1>Publicar missão</h1><p class="muted">Defina a recompensa líquida do trabalhador. Você verá apenas o custo final da missão.</p></section>
+
+    <div class="metric-grid wallet-mini">
+      ${metric("Saldo disponível",brl(wallet.available))}
+      ${metric("Saldo reservado",brl(wallet.reserved))}
+      ${metric("Gasto aprovado",brl(wallet.spent))}
+    </div>
+
+    ${wallet.available<MIN_REWARD?`<div class="notice">Seu saldo está zerado. Na v0.4 o administrador adiciona saldo interno pelo painel Admin antes de você publicar.</div>`:""}
 
     <form class="panel image-form" method="post" action="/missions/create">
-      <label>Título</label>
-      <input class="field" name="title" required minlength="5" maxlength="100" placeholder="Ex.: Teste minha página e diga o que ficou confuso">
+      <label>Título</label><input class="field" name="title" required minlength="5" maxlength="100" placeholder="Ex.: Teste minha página e diga o que ficou confuso">
+      <label>Categoria</label><select class="field" name="category"><option>Pesquisa</option><option>Teste</option><option>Opinião</option><option>Levantamento</option></select>
+      <label>Descrição curta</label><textarea class="field" name="description" required minlength="10" maxlength="500" placeholder="Explique o objetivo da missão."></textarea>
+      <label>Instruções</label><textarea class="field" name="instructions" required minlength="10" maxlength="1500" placeholder="Passo a passo do que a pessoa deve fazer."></textarea>
 
-      <label>Categoria</label>
-      <select class="field" name="category">
-        <option>Pesquisa</option><option>Teste</option><option>Opinião</option><option>Levantamento</option>
-      </select>
-
-      <label>Descrição curta</label>
-      <textarea class="field" name="description" required minlength="10" maxlength="500" placeholder="Explique o objetivo da missão."></textarea>
-
-      <label>Instruções</label>
-      <textarea class="field" name="instructions" required minlength="10" maxlength="1500" placeholder="Passo a passo do que a pessoa deve fazer."></textarea>
-
-      <div class="row">
-        <div>
-          <label>Recompensa por pessoa</label>
-          <input class="field reward-input" name="reward" type="number" min="2.50" max="500" step="0.50" value="2.50" required>
-        </div>
-        <div>
-          <label>Vagas</label>
-          <input class="field slots-input" name="slots" type="number" min="1" max="500" value="10" required>
-        </div>
+      <div class="form-grid">
+        <div><label>Recompensa por pessoa</label><input class="field reward-input" name="reward" type="number" min="2.50" max="500" step="0.50" value="2.50" required></div>
+        <div><label>Vagas</label><input class="field slots-input" name="slots" type="number" min="1" max="500" value="10" required></div>
+        <div><label>Tempo estimado (min)</label><input class="field" name="estimated_minutes" type="number" min="1" max="180" value="5" required></div>
+        <div><label>Prazo</label><input class="field" name="deadline" type="date" min="${todayDate()}" value="${defaultDeadline}" required></div>
       </div>
 
-      <label>Imagem do card (opcional)</label>
-      <input class="field image-input" type="file" accept="image/jpeg,image/png,image/webp">
-      <input type="hidden" name="image_data" class="image-data">
-      <img class="preview" alt="">
+      <label>Imagem do card (opcional)</label><input class="field image-input" type="file" accept="image/jpeg,image/png,image/webp">
+      <input type="hidden" name="image_data" class="image-data"><img class="preview" alt="">
 
-      <div class="notice budget">Orçamento demonstrativo: R$ 25,00. Ainda não existe cobrança real.</div>
-      <div class="notice">Valor mínimo por pessoa: <b>R$ 2,50</b>. Não publique curtidas, seguidores ou avaliações pagas.</div>
-
-      <button class="btn primary wide">Publicar missão</button>
-    </form>
-  `;
+      <div class="final-cost budget">Custo final da missão: ${brl(finalMissionCost(2.50,10))}</div>
+      <div class="notice">O trabalhador verá somente a recompensa que recebe. O custo final precisa estar disponível e será reservado quando a missão for publicada.</div>
+      <button class="btn primary wide">Publicar e reservar saldo</button>
+    </form>`;
 }
 
-function renderClient(user, missions, subs) {
-  if (!canClient(user)) return denied("Seu perfil não possui acesso de contratante.");
-
+function renderClient(user, missions, subs, wallet) {
+  if(!canClient(user)) return denied("Seu perfil não possui acesso de contratante.");
   return `
-    <section class="hero"><h1>Painel do contratante</h1><p class="muted">Gerencie missões e aprove os trabalhos recebidos.</p></section>
+    <section class="hero"><h1>Painel do contratante</h1><p class="muted">Gerencie missões, prazos, reservas e aprovações.</p></section>
+
+    <div class="metric-grid">
+      ${metric("Saldo disponível",brl(wallet.available))}
+      ${metric("Reservado",brl(wallet.reserved))}
+      ${metric("Gasto aprovado",brl(wallet.spent))}
+      ${metric("Pendentes",subs.filter(s=>s.status==="submitted").length)}
+    </div>
 
     <div class="section-title"><h2>Suas missões</h2><span>${missions.length}</span></div>
-    <div class="grid">
-      ${missions.length ? missions.map(m => `
-        <article class="card">
-          ${m.image_data ? `<img class="cardimg" src="${m.image_data}" alt="">` : ""}
-          <div class="cardbody">
-            <div class="meta"><span class="tag">${esc(m.category).toUpperCase()}</span><span class="reward">${brl(m.reward)}</span></div>
-            <h3>${esc(m.title)}</h3>
-            <div class="stats"><span>${Number(m.submissions_count||0)} participações</span><span>${Number(m.approved_count||0)} aprovadas</span><span>${esc(m.status)}</span></div>
-            <form method="post" action="/missions/${m.id}/${m.status === "open" ? "close" : "open"}">
-              <button class="btn secondary wide">${m.status === "open" ? "Fechar missão" : "Reabrir missão"}</button>
-            </form>
-          </div>
-        </article>
-      `).join("") : `<div class="empty">Você ainda não publicou nenhuma missão.</div>`}
-    </div>
+    <div class="grid">${missions.length?missions.map(m=>clientMissionCard(m)).join(""):`<div class="empty">Você ainda não publicou nenhuma missão.</div>`}</div>
 
     <div class="section-title spaced"><h2>Trabalhos recebidos</h2><span>${subs.length}</span></div>
     <div class="grid">
-      ${subs.length ? subs.map(s => `
-        <article class="card">
-          <div class="cardbody">
-            <div class="meta"><span class="status ${esc(s.status)}">${statusText(s.status)}</span><span class="reward">${brl(s.reward)}</span></div>
-            <h3>${esc(s.title)}</h3>
-            <p><b>${esc(s.worker_name)}</b></p>
-            ${s.answer ? `<div class="answer">${esc(s.answer)}</div>` : `<p class="muted">Ainda não enviou a resposta.</p>`}
-            ${s.proof_image ? `<img class="proof" src="${s.proof_image}" alt="">` : ""}
-            ${s.status === "submitted" ? `
-              <div class="row">
-                <form method="post" action="/submissions/${s.id}/reject"><button class="btn danger wide">Rejeitar</button></form>
-                <form method="post" action="/submissions/${s.id}/approve"><button class="btn primary wide">Aprovar</button></form>
-              </div>
-            ` : ""}
-          </div>
-        </article>
-      `).join("") : `<div class="empty">Nenhum trabalho recebido ainda.</div>`}
-    </div>
-  `;
+      ${subs.length?subs.map(s=>`
+        <article class="card"><div class="cardbody">
+          <div class="meta"><span class="status ${esc(s.status)}">${statusText(s.status)}</span><span class="reward">${brl(s.reward)}</span></div>
+          <h3>${esc(s.title)}</h3><p><b>${esc(s.worker_name)}</b></p>
+          ${s.answer?`<div class="answer">${esc(s.answer)}</div>`:`<p class="muted">Ainda não enviou a resposta.</p>`}
+          ${s.proof_image?`<img class="proof" src="${s.proof_image}" alt="">`:""}
+          ${s.status==="submitted"?`<div class="row">
+            <form method="post" action="/submissions/${s.id}/reject"><button class="btn danger wide">Rejeitar</button></form>
+            <form method="post" action="/submissions/${s.id}/approve"><button class="btn primary wide">Aprovar</button></form>
+          </div>`:""}
+        </div></article>`).join(""):`<div class="empty">Nenhum trabalho recebido ainda.</div>`}
+    </div>`;
 }
 
-function renderProfile(user, balance, today) {
-  const safeUser = user || {name:"Usuário",email:""};
+function renderProfile(user, workerWallet, clientWallet, reputation, adminCount) {
+  const initials=String(user.name||"U").split(/\s+/).slice(0,2).map(x=>x[0]||"").join("").toUpperCase();
   return `
-    <section class="hero"><h1>Perfil</h1></section>
-    <div class="panel">
-      <div class="userline">
-        <div class="avatar">👤</div>
-        <div><b>${esc(safeUser.name || "Usuário")}</b><div class="muted small">${esc(safeUser.email || "")}</div></div>
-      </div>
-      <hr>
-      <small>Saldo aprovado</small>
-      <div class="money">${brl(balance)}</div>
-      <p class="muted">Hoje: ${brl(today)}</p>
-      <div class="notice"><b>Perfil:</b> ${esc(roleLabel(user.role))}. As áreas do outro perfil ficam bloqueadas. O saldo nesta versão é interno para testar o fluxo.</div>
-      <form method="post" action="/logout"><button class="btn secondary wide">Sair</button></form>
+    <section class="hero"><h1>Perfil e carteira</h1><p class="muted">Acompanhe reputação, saldo e histórico.</p></section>
+
+    <div class="profile-head panel">
+      <div class="userline"><div class="avatar initials">${esc(initials)}</div><div>
+        <b>${esc(user.name)}</b><div class="muted small">${esc(user.email)}</div>
+        <div class="profile-badges">${user.is_admin?`<span class="tag">ADMIN</span>`:""}<span class="tag">${roleLabel(user.role)}</span></div>
+      </div></div>
     </div>
-  `;
+
+    ${workerWallet?`
+      <div class="section-title"><h2>Carteira do trabalhador</h2></div>
+      <div class="metric-grid">${metric("Disponível",brl(workerWallet.available))}${metric("Em análise",brl(workerWallet.pending))}${metric("Total ganho",brl(workerWallet.total))}${metric("Aprovação",`${reputation.worker?.rate||100}%`)}</div>
+      ${renderWorkerHistory(workerWallet.entries)}
+    `:""}
+
+    ${clientWallet?`
+      <div class="section-title spaced"><h2>Carteira do contratante</h2></div>
+      <div class="metric-grid">${metric("Disponível",brl(clientWallet.available))}${metric("Reservado",brl(clientWallet.reserved))}${metric("Gasto aprovado",brl(clientWallet.spent))}${metric("Reputação",`${reputation.client?.rate||100}%`)}</div>
+      ${renderClientHistory(clientWallet.entries)}
+    `:""}
+
+    <div class="section-title spaced"><h2>Reputação</h2></div>
+    <div class="panel reputation">
+      ${reputation.worker?`<p><b>Trabalhador:</b> ${reputation.worker.approved} aprovadas · ${reputation.worker.rejected} rejeitadas · ${reputation.worker.rate}% de aprovação</p>`:""}
+      ${reputation.client?`<p><b>Contratante:</b> ${reputation.client.missions} missões · ${reputation.client.approved} trabalhos aprovados · ${reputation.client.rate}% de aprovação</p>`:""}
+    </div>
+
+    ${adminCount===0&&!user.is_admin?`
+      <div class="notice">Primeira configuração: ainda não existe administrador no Bern Nexus.</div>
+      <form method="post" action="/admin/claim"><button class="btn primary">Ativar esta conta como administrador</button></form>
+    `:""}
+    ${user.is_admin?`<a class="btn secondary linkbtn admin-link" href="/?view=admin">Abrir painel Admin</a>`:""}
+
+    <form method="post" action="/logout" class="logoutform"><button class="btn secondary">Sair</button></form>`;
 }
 
 function renderNav(view, user) {
-  if (user.role === "worker") {
-    return `
-      <nav class="nav nav-worker">
-        <a class="${view==="home"?"active":""}" href="/?view=home"><strong>⌂</strong>Missões</a>
-        <a class="${view==="mine"?"active":""}" href="/?view=mine"><strong>✓</strong>Minhas</a>
-        <a class="${view==="profile"?"active":""}" href="/?view=profile"><strong>●</strong>Perfil</a>
-      </nav>
-    `;
+  const items=[];
+  if(user.role==="worker") {
+    items.push(["home","⌂","Missões"],["mine","✓","Minhas"],["profile","●","Perfil"]);
+  } else if(user.role==="client") {
+    items.push(["home","⌂","Início"],["create","＋","Publicar"],["client","▣","Trabalhos"],["profile","●","Perfil"]);
+  } else {
+    items.push(["home","⌂","Missões"],["mine","✓","Minhas"],["create","＋","Publicar"],["client","▣","Contratante"],["profile","●","Perfil"]);
   }
+  if(user.is_admin) items.push(["admin","⚙","Admin"]);
+  return `<nav class="nav" style="--nav-count:${items.length}">${items.map(([id,icon,label])=>`<a class="${view===id?"active":""}" href="/?view=${id}"><strong>${icon}</strong>${label}</a>`).join("")}</nav>`;
+}
 
-  if (user.role === "client") {
-    return `
-      <nav class="nav nav-client">
-        <a class="${view==="home"?"active":""}" href="/?view=home"><strong>⌂</strong>Início</a>
-        <a class="${view==="create"?"active":""}" href="/?view=create"><strong>＋</strong>Publicar</a>
-        <a class="${view==="client"?"active":""}" href="/?view=client"><strong>▣</strong>Trabalhos</a>
-        <a class="${view==="profile"?"active":""}" href="/?view=profile"><strong>●</strong>Perfil</a>
-      </nav>
-    `;
-  }
+function option(value,label,current) {
+  return `<option value="${esc(value)}" ${String(value)===String(current)?"selected":""}>${esc(label)}</option>`;
+}
 
+function metric(label,value) {
+  return `<div class="metric-card"><small>${esc(label)}</small><b>${esc(String(value))}</b></div>`;
+}
+
+function missionListRow(m,user) {
+  const left=Math.max(0,Number(m.slots)-Number(m.occupied||0));
+  return `<article class="mission-row">
+    <div class="mission-row-main">
+      <div class="row-title"><span class="tag">${esc(m.category).toUpperCase()}</span><b>${esc(m.title)}</b></div>
+      <div class="row-meta"><span>⏱ ${Number(m.estimated_minutes||5)} min</span><span>🎯 ${left} vagas</span><span>📅 ${esc(deadlineLabel(m.deadline))}</span><span>👤 ${esc(m.client_name||"Contratante")}</span></div>
+    </div>
+    <div class="mission-row-pay"><span>Você recebe</span><b>${brl(m.reward)}</b>
+      <form method="post" action="/missions/${m.id}/start"><button class="btn primary">Fazer</button></form>
+    </div>
+  </article>`;
+}
+
+function renderPagination(feed) {
+  if(feed.pages<=1) return "";
+  const o=feed.opts;
+  return `<div class="pagination">
+    ${o.page>1?`<a class="btn secondary linkbtn nomargin" href="${queryUrl(o,{page:o.page-1})}">← Anterior</a>`:`<span></span>`}
+    <span>Página ${o.page} de ${feed.pages}</span>
+    ${o.page<feed.pages?`<a class="btn secondary linkbtn nomargin" href="${queryUrl(o,{page:o.page+1})}">Próxima →</a>`:`<span></span>`}
+  </div>`;
+}
+
+function clientMissionCard(m) {
+  return `<article class="card">
+    ${m.image_data?`<img class="cardimg" src="${m.image_data}" alt="">`:""}
+    <div class="cardbody">
+      <div class="meta"><span class="tag">${esc(m.category).toUpperCase()}</span><span class="reward">${brl(m.reward)}</span></div>
+      <h3>${esc(m.title)}</h3>
+      <div class="stats">
+        <span>${Number(m.submissions_count||0)} participações</span>
+        <span>${Number(m.pending_count||0)} em análise</span>
+        <span>${Number(m.approved_count||0)} aprovadas</span>
+        <span>📅 ${esc(deadlineLabel(m.deadline))}</span>
+      </div>
+      <div class="cost-line"><span>Custo final</span><b>${brl(m.final_cost)}</b></div>
+      <div class="cost-line"><span>Ainda reservado</span><b>${brl(m.reserved_remaining)}</b></div>
+      <form method="post" action="/missions/${m.id}/${m.status==="open"?"close":"open"}">
+        <button class="btn secondary wide">${m.status==="open"?"Fechar missão":"Reabrir missão"}</button>
+      </form>
+    </div></article>`;
+}
+
+function renderWorkerHistory(entries) {
+  return `<div class="history panel"><h3>Histórico</h3>${entries.length?entries.map(e=>`<div class="history-row"><div><b>${esc(e.description||e.type)}</b><small>${formatDateTime(e.created_at)}</small></div><strong class="${Number(e.amount)>=0?"positive":"negative"}">${brl(e.amount)}</strong></div>`).join(""):`<div class="muted">Nenhuma movimentação ainda.</div>`}</div>`;
+}
+
+function renderClientHistory(entries) {
+  return `<div class="history panel"><h3>Histórico</h3>${entries.length?entries.map(e=>`<div class="history-row"><div><b>${esc(e.description||e.type)}</b><small>${formatDateTime(e.created_at)}</small></div><div class="ledger-values"><span>Disponível ${signedBrl(e.delta_available)}</span><span>Reservado ${signedBrl(e.delta_reserved)}</span></div></div>`).join(""):`<div class="muted">Nenhuma movimentação ainda.</div>`}</div>`;
+}
+
+function renderAdmin(user,data) {
   return `
-    <nav class="nav">
-      <a class="${view==="home"?"active":""}" href="/?view=home"><strong>⌂</strong>Missões</a>
-      <a class="${view==="mine"?"active":""}" href="/?view=mine"><strong>✓</strong>Minhas</a>
-      <a class="${view==="create"?"active":""}" href="/?view=create"><strong>＋</strong>Publicar</a>
-      <a class="${view==="client"?"active":""}" href="/?view=client"><strong>▣</strong>Contratante</a>
-      <a class="${view==="profile"?"active":""}" href="/?view=profile"><strong>●</strong>Perfil</a>
-    </nav>
-  `;
+    <section class="hero"><h1>Admin Bern Nexus</h1><p class="muted">Controle usuários, saldo interno, missões e receita da plataforma.</p></section>
+    <div class="metric-grid">
+      ${metric("Usuários",Number(data.stats.users||0))}
+      ${metric("Missões abertas",Number(data.stats.open_missions||0))}
+      ${metric("Aguardando revisão",Number(data.stats.pending_reviews||0))}
+      ${metric("Saldo reservado",brl(data.stats.total_reserved||0))}
+      ${metric("Receita Nexus",brl(data.platform))}
+    </div>
+
+    <div class="section-title spaced"><h2>Usuários</h2><span>${data.users.length}</span></div>
+    <div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Usuário</th><th>Perfil</th><th>Saldo</th><th>Status</th><th>Ações</th></tr></thead><tbody>
+      ${data.users.map(u=>`<tr>
+        <td><b>${esc(u.name)}</b><small>${esc(u.email)}</small></td>
+        <td>${esc(roleLabel(u.role))}${Number(u.is_admin||0)===1?` · ADMIN`:""}</td>
+        <td>${["client","both"].includes(u.role)?`${brl(u.client_available)} disp.<br><small>${brl(u.client_reserved)} reservado</small>`:"—"}</td>
+        <td>${Number(u.is_blocked||0)===1?"Bloqueado":"Ativo"}</td>
+        <td>
+          ${["client","both"].includes(u.role)?`<form class="inline-form" method="post" action="/admin/users/${u.id}/credit"><input class="mini-input" name="amount" type="number" min="2.50" step="0.50" placeholder="R$"><button class="mini-btn">+ saldo</button></form>`:""}
+          ${Number(u.is_admin||0)!==1?`<form class="inline-form" method="post" action="/admin/users/${u.id}/${Number(u.is_blocked||0)===1?"unblock":"block"}"><button class="mini-btn ${Number(u.is_blocked||0)===1?"":"danger-mini"}">${Number(u.is_blocked||0)===1?"Desbloquear":"Bloquear"}</button></form>`:""}
+        </td>
+      </tr>`).join("")}
+    </tbody></table></div>
+
+    <div class="section-title spaced"><h2>Missões recentes</h2><span>${data.missions.length}</span></div>
+    <div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Missão</th><th>Contratante</th><th>Valor</th><th>Prazo</th><th>Status</th><th></th></tr></thead><tbody>
+      ${data.missions.map(m=>`<tr><td><b>#${m.id} ${esc(m.title)}</b></td><td>${esc(m.client_name||"—")}</td><td>${brl(m.final_cost)}</td><td>${esc(deadlineLabel(m.deadline))}</td><td>${esc(m.status)}</td><td>${m.status==="open"?`<form method="post" action="/admin/missions/${m.id}/close"><button class="mini-btn danger-mini">Encerrar</button></form>`:""}</td></tr>`).join("")}
+    </tbody></table></div>`;
+}
+
+function formatDateTime(v) {
+  if(!v) return "";
+  return String(v).replace("T"," ").slice(0,16);
+}
+function signedBrl(v) {
+  const n=Number(v||0);
+  return `${n>=0?"+":""}${brl(n)}`;
 }
 
 function renderAuth(mode, url) {
@@ -751,21 +1334,22 @@ function renderAuth(mode, url) {
 }
 
 async function currentUser(request, db) {
-  const token = getCookie(request, "bn_session");
-  if (!token) return null;
-  const row = await db.prepare(`
-    SELECT u.id,u.name,u.email,u.role,u.created_at
+  const token=getCookie(request,"bn_session");
+  if(!token) return null;
+  const row=await db.prepare(`
+    SELECT u.id,u.name,u.email,u.role,u.created_at,u.is_admin,u.is_blocked
     FROM nexus_sessions s JOIN nexus_users u ON u.id=s.user_id
-    WHERE s.token=? AND s.expires_at>CURRENT_TIMESTAMP
-    LIMIT 1
+    WHERE s.token=? AND s.expires_at>CURRENT_TIMESTAMP LIMIT 1
   `).bind(token).first();
-  if (!row || !row.id) return null;
+  if(!row||!row.id) return null;
   return {
-    id: Number(row.id),
-    name: String(row.name || "Usuário"),
-    email: String(row.email || ""),
-    role: ["worker","client","both"].includes(String(row.role)) ? String(row.role) : "worker",
-    created_at: row.created_at || ""
+    id:Number(row.id),
+    name:String(row.name||"Usuário"),
+    email:String(row.email||""),
+    role:["worker","client","both"].includes(String(row.role))?String(row.role):"worker",
+    is_admin:Number(row.is_admin||0)===1,
+    is_blocked:Number(row.is_blocked||0)===1,
+    created_at:row.created_at||""
   };
 }
 
@@ -797,7 +1381,7 @@ function roleLabel(role) {
   return role === "worker" ? "TRABALHADOR" : role === "client" ? "CONTRATANTE" : "TRABALHADOR + CONTRATANTE";
 }
 function statusText(s) {
-  return ({started:"Em andamento",submitted:"Em análise",approved:"Aprovada",rejected:"Rejeitada"})[s] || s;
+  return ({started:"Em andamento",submitted:"Em análise",approved:"Aprovada",rejected:"Rejeitada",cancelled:"Cancelada"})[s] || s;
 }
 function denied(text) {
   return `<section class="hero"><h1>Acesso limitado</h1></section><div class="notice">${esc(text)}</div>`;
@@ -1133,7 +1717,7 @@ textarea.field{min-height:104px;resize:vertical}
   bottom:0;
   z-index:50;
   display:grid;
-  grid-template-columns:repeat(5,minmax(0,1fr));
+  grid-template-columns:repeat(var(--nav-count,5),minmax(0,1fr));
   width:100%;
   max-width:1180px;
   margin:0 auto;
@@ -1197,6 +1781,19 @@ textarea.field{min-height:104px;resize:vertical}
 .status{font-size:11px;font-weight:900;text-transform:uppercase}
 .started{color:#8bcaff}.submitted{color:#ffc978}.approved{color:#55e9aa}.rejected{color:#ff8fa9}
 
+
+.filter-panel{max-width:1000px;background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:15px;margin:18px 0}
+.filter-search{max-width:650px}.filter-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.filter-actions{display:flex;gap:9px;margin-top:12px}.filter-actions .btn{min-width:130px}
+.toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:20px 0 11px;color:#9fb2c4;font-size:12px}.view-switch{display:flex;border:1px solid var(--line);border-radius:11px;overflow:hidden}.view-switch a{padding:8px 11px;text-decoration:none}.view-switch a.active{background:#15344a;color:var(--accent)}
+.mission-list{display:grid;gap:8px}.mission-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:13px 14px}.mission-row-main{min-width:0}.row-title{display:flex;align-items:center;gap:9px;min-width:0}.row-title b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.row-meta{display:flex;gap:12px;flex-wrap:wrap;color:#819aae;font-size:11px;margin-top:7px}.mission-row-pay{text-align:right;min-width:130px}.mission-row-pay>span{display:block;color:#8fa5b8;font-size:10px}.mission-row-pay>b{display:block;color:var(--accent);font-size:18px;margin:2px 0 6px}.mission-row-pay .btn{min-height:36px;padding:7px 13px}
+.pagination{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:10px;margin-top:18px}.pagination>:last-child{justify-self:end}.pagination>span{text-align:center;color:#8fa5b8;font-size:12px}
+.metric-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;max-width:1000px;margin:15px 0}.metric-card{min-width:0;background:var(--panel);border:1px solid var(--line);border-radius:15px;padding:13px}.metric-card small{display:block}.metric-card b{display:block;font-size:21px;margin-top:5px;overflow-wrap:anywhere}.wallet-mini{grid-template-columns:repeat(3,minmax(0,1fr));max-width:820px}
+.status-tabs{display:flex;gap:7px;overflow:auto;padding:2px 0 14px}.status-tabs a{white-space:nowrap;text-decoration:none;border:1px solid var(--line);border-radius:999px;padding:8px 11px;color:#99adbf;font-size:12px}.status-tabs a.active{background:#15344a;color:var(--accent);border-color:#28516b}
+.form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.final-cost{margin:14px 0;background:#123329;border:1px solid #28694f;color:#9af2c9;border-radius:14px;padding:14px;font-size:17px;font-weight:900}
+.contractor-line{font-size:11px;color:#849caf;margin:10px 0}.cost-line{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-top:1px solid #1c3348;font-size:12px}.cost-line b{color:#bcd0e0}.topgap{margin-top:8px}
+.profile-head{margin-bottom:14px}.initials{font-weight:950;color:var(--accent)}.profile-badges{display:flex;gap:6px;margin-top:7px}.reputation p{margin:7px 0}.history{margin-top:10px}.history h3{margin-top:0}.history-row{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-top:1px solid #1c3348}.history-row:first-of-type{border-top:0}.history-row small{display:block;margin-top:3px}.history-row strong.positive{color:var(--accent)}.history-row strong.negative{color:#ff8fa9}.ledger-values{text-align:right;font-size:11px;color:#a7bbcb}.ledger-values span{display:block}.admin-link{max-width:260px}.logoutform{margin-top:16px}
+.adminpill{border-color:#66552d;color:#ffd776}.admin-table-wrap{overflow:auto;border:1px solid var(--line);border-radius:15px;max-width:100%}.admin-table{width:100%;border-collapse:collapse;min-width:760px;background:var(--panel)}.admin-table th,.admin-table td{text-align:left;padding:11px;border-bottom:1px solid #1d3449;font-size:12px;vertical-align:top}.admin-table th{color:#8fa5b8;background:#091725}.admin-table td small{display:block;margin-top:3px}.inline-form{display:flex;gap:5px;margin:3px 0}.mini-input{width:85px;background:#081521;border:1px solid var(--line-2);color:white;border-radius:8px;padding:6px}.mini-btn{border:1px solid #31506a;background:#132a3e;color:#dceaf6;border-radius:8px;padding:6px 8px;cursor:pointer;white-space:nowrap}.danger-mini{border-color:#703449;background:#3a1d27;color:#ffd4df}
+
 @media(max-width:520px){
   .head-name{display:none}
   .pill{font-size:9px;padding:5px 7px}
@@ -1209,6 +1806,13 @@ textarea.field{min-height:104px;resize:vertical}
   .row{grid-template-columns:1fr}
   .client-summary{grid-template-columns:1fr}
   .cardbody,.panel{padding:15px}
+  .filter-grid,.form-grid,.metric-grid,.wallet-mini{grid-template-columns:1fr}
+  .filter-actions{flex-direction:column}
+  .mission-row{grid-template-columns:1fr}
+  .mission-row-pay{text-align:left;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .mission-row-pay>b{margin:0}
+  .pagination{grid-template-columns:1fr}.pagination>*{justify-self:stretch!important}
+  .toolbar{align-items:flex-start;flex-direction:column}
 }
 
 @media(min-width:640px){
@@ -1327,7 +1931,11 @@ ${body}
       const reward=Number(form.querySelector(".reward-input")?.value||0);
       const slots=Number(form.querySelector(".slots-input")?.value||0);
       const budget=form.querySelector(".budget");
-      if(budget) budget.textContent="Orçamento demonstrativo: "+new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(reward*slots)+". Ainda não existe cobrança real.";
+      if(budget){
+        const porPessoa=Math.round(reward*1.20*100)/100;
+        const total=Math.round(porPessoa*slots*100)/100;
+        budget.textContent="Custo final da missão: "+new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(total);
+      }
     });
   });
 
