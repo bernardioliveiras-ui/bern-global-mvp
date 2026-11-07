@@ -920,31 +920,76 @@ async function renderDashboard(request, db, user, url) {
 function renderHome(user, feed, wallet) {
   const o=feed.opts;
   const progress=Math.min(100,Math.max(0,wallet.today/DAILY_GOAL*100));
+  const remaining=Math.max(0,DAILY_GOAL-wallet.today);
   return `
-    <section class="hero">
-      <h1>Ganhe fazendo<br>pequenas missões.</h1>
-      <p class="muted">Encontre tarefas rapidamente, filtre e escolha as melhores para você.</p>
-    </section>
+    <section class="home-hero-shell">
+      <div class="home-hero-copy">
+        <span class="hero-kicker">Painel do trabalhador</span>
+        <h1>Ganhe fazendo<br>pequenas missões.</h1>
+        <p class="muted">Encontre tarefas rapidamente, filtre melhor e foque nas missões que mais valem a pena para você.</p>
 
-    <section class="goal">
-      <div class="goalrow">
-        <div><small>Ganhos aprovados hoje</small><div class="money">${brl(wallet.today)}</div></div>
-        <div class="goalright"><small>Meta visual</small><b>R$ 50/dia</b></div>
+        <div class="hero-mini-stats">
+          <div class="hero-mini-card">
+            <small>Disponível</small>
+            <b>${brl(wallet.available)}</b>
+          </div>
+          <div class="hero-mini-card">
+            <small>Em análise</small>
+            <b>${brl(wallet.pending)}</b>
+          </div>
+          <div class="hero-mini-card">
+            <small>Missões encontradas</small>
+            <b>${feed.total}</b>
+          </div>
+        </div>
       </div>
-      <div class="bar"><i style="width:${progress}%"></i></div>
-      <div class="goaltext">${wallet.today>=DAILY_GOAL?"Meta atingida hoje.":`${brl(DAILY_GOAL-wallet.today)} para chegar à meta visual.`}</div>
+
+      <section class="goal goal-highlight">
+        <div class="goal-topline">
+          <span class="goal-badge">${progress >= 100 ? "Meta batida" : "Meta do dia"}</span>
+          <span class="goal-percent">${Math.round(progress)}%</span>
+        </div>
+        <div class="goalrow">
+          <div>
+            <small>Ganhos aprovados hoje</small>
+            <div class="money">${brl(wallet.today)}</div>
+          </div>
+          <div class="goalright">
+            <small>Meta visual</small>
+            <b>R$ 50/dia</b>
+          </div>
+        </div>
+        <div class="bar"><i style="width:${progress}%"></i></div>
+        <div class="goalfoot">
+          <div class="goaltext">${wallet.today>=DAILY_GOAL?"Meta atingida hoje.":`${brl(remaining)} para chegar à meta visual.`}</div>
+          <div class="goalhint">${feed.total ? `${feed.total} missão(ões) disponível(is)` : "Aguardando novas missões"}</div>
+        </div>
+      </section>
     </section>
 
-    <div class="notice">A meta de R$ 50/dia não é garantia de renda. Ela depende de missões disponíveis e aprovação.</div>
+    <div class="notice notice-home">A meta de R$ 50/dia não é garantia de renda. Ela depende de missões disponíveis e aprovação.</div>
 
-    <form class="filter-panel" method="get">
+    <form class="filter-panel filter-panel-hero" method="get">
       <input type="hidden" name="view" value="home">
       <input type="hidden" name="mode" value="${esc(o.mode)}">
-      <div class="filter-search">
-        <label>Buscar missão</label>
-        <input class="field" name="q" value="${esc(o.q)}" placeholder="Ex.: landing page, pesquisa, Instagram">
+
+      <div class="filter-panel-head">
+        <div>
+          <b>Encontre as melhores tarefas</b>
+          <p class="muted">Use a busca, escolha o formato e refine os resultados.</p>
+        </div>
+        <div class="view-switch">
+          <a class="${o.mode==="cards"?"active":""}" href="${queryUrl(o,{mode:"cards",page:1})}">▦ Cards</a>
+          <a class="${o.mode==="list"?"active":""}" href="${queryUrl(o,{mode:"list",page:1})}">☷ Lista</a>
+        </div>
       </div>
-      <div class="filter-grid">
+
+      <div class="filter-search filter-search-wide">
+        <label>Buscar missão</label>
+        <input class="field search-field" name="q" value="${esc(o.q)}" placeholder="Ex.: landing page, pesquisa, Instagram">
+      </div>
+
+      <div class="filter-grid filter-grid-4">
         <div><label>Categoria</label><select class="field" name="category">
           ${option("", "Todas", o.category)}
           ${option("Pesquisa","Pesquisa",o.category)}
@@ -962,16 +1007,22 @@ function renderHome(user, feed, wallet) {
           <option value="">Todas disponíveis</option>
           <option value="1" ${o.newonly?"selected":""}>Ainda não iniciei</option>
         </select></div>
+        <div class="filter-summary-box">
+          <small>Resultados</small>
+          <b>${feed.total}</b>
+          <span>${o.mode === "list" ? "visualização compacta" : "visualização em cards"}</span>
+        </div>
       </div>
-      <div class="filter-actions"><button class="btn primary">Aplicar filtros</button><a class="btn secondary linkbtn nomargin" href="/?view=home">Limpar</a></div>
+
+      <div class="filter-actions">
+        <button class="btn primary">Aplicar filtros</button>
+        <a class="btn secondary linkbtn nomargin" href="/?view=home">Limpar</a>
+      </div>
     </form>
 
-    <div class="toolbar">
+    <div class="toolbar toolbar-home">
       <div><b>${feed.total}</b> missões encontradas</div>
-      <div class="view-switch">
-        <a class="${o.mode==="cards"?"active":""}" href="${queryUrl(o,{mode:"cards",page:1})}">▦ Cards</a>
-        <a class="${o.mode==="list"?"active":""}" href="${queryUrl(o,{mode:"list",page:1})}">☷ Lista</a>
-      </div>
+      <div class="toolbar-note">${o.q ? `Busca: "${esc(o.q)}"` : "Veja abaixo as oportunidades disponíveis"}</div>
     </div>
 
     ${o.mode==="list"
@@ -1783,6 +1834,34 @@ textarea.field{min-height:104px;resize:vertical}
 
 
 .filter-panel{max-width:1000px;background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:15px;margin:18px 0}
+.home-hero-shell{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(320px,.85fr);gap:18px;align-items:stretch;max-width:1000px}
+.hero-kicker{display:inline-flex;align-items:center;gap:8px;background:rgba(80,227,164,.08);border:1px solid rgba(80,227,164,.18);color:#88efbc;border-radius:999px;padding:7px 12px;font-size:11px;font-weight:800;letter-spacing:.2px;margin-bottom:12px}
+.home-hero-copy{min-width:0;padding-top:4px}
+.hero-mini-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:18px;max-width:760px}
+.hero-mini-card{min-width:0;background:linear-gradient(180deg,rgba(14,32,49,.95),rgba(10,25,40,.95));border:1px solid #1d3a50;border-radius:16px;padding:14px 14px 13px;box-shadow:0 10px 24px rgba(0,0,0,.12)}
+.hero-mini-card small{display:block}
+.hero-mini-card b{display:block;font-size:22px;margin-top:5px;color:#f4fbff;overflow-wrap:anywhere}
+.goal-highlight{max-width:none;min-width:0;margin:0;display:flex;flex-direction:column;justify-content:space-between;box-shadow:0 18px 38px rgba(3,15,25,.18)}
+.goal-topline{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px}
+.goal-badge{display:inline-flex;align-items:center;border:1px solid rgba(80,227,164,.22);background:rgba(80,227,164,.08);color:#8ff1c2;border-radius:999px;padding:6px 10px;font-size:11px;font-weight:800}
+.goal-percent{font-size:12px;font-weight:900;color:#c6f7de}
+.goalfoot{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-top:8px}
+.goalhint{font-size:11px;color:#a7c0d2;text-align:right}
+.notice-home{max-width:1000px}
+.filter-panel-hero{max-width:1000px;background:linear-gradient(180deg,rgba(13,27,42,.98),rgba(9,22,35,.98));box-shadow:0 10px 28px rgba(0,0,0,.14)}
+.filter-panel-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:12px}
+.filter-panel-head b{font-size:18px}
+.filter-panel-head p{margin:6px 0 0}
+.filter-search-wide{max-width:none}
+.search-field{font-size:14px}
+.filter-grid-4{grid-template-columns:1.25fr 1fr 1fr minmax(150px,.7fr)}
+.filter-summary-box{background:#0b1b2b;border:1px solid #20384e;border-radius:14px;padding:12px 13px;display:flex;flex-direction:column;justify-content:center}
+.filter-summary-box small{display:block}
+.filter-summary-box b{display:block;font-size:24px;line-height:1.1;margin:4px 0;color:#fff}
+.filter-summary-box span{font-size:11px;color:#92a8ba}
+.toolbar-home{max-width:1000px}
+.toolbar-note{font-size:11px;color:#8ea6b8}
+
 .filter-search{max-width:650px}.filter-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.filter-actions{display:flex;gap:9px;margin-top:12px}.filter-actions .btn{min-width:130px}
 .toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:20px 0 11px;color:#9fb2c4;font-size:12px}.view-switch{display:flex;border:1px solid var(--line);border-radius:11px;overflow:hidden}.view-switch a{padding:8px 11px;text-decoration:none}.view-switch a.active{background:#15344a;color:var(--accent)}
 .mission-list{display:grid;gap:8px}.mission-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:13px 14px}.mission-row-main{min-width:0}.row-title{display:flex;align-items:center;gap:9px;min-width:0}.row-title b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.row-meta{display:flex;gap:12px;flex-wrap:wrap;color:#819aae;font-size:11px;margin-top:7px}.mission-row-pay{text-align:right;min-width:130px}.mission-row-pay>span{display:block;color:#8fa5b8;font-size:10px}.mission-row-pay>b{display:block;color:var(--accent);font-size:18px;margin:2px 0 6px}.mission-row-pay .btn{min-height:36px;padding:7px 13px}
@@ -1806,13 +1885,24 @@ textarea.field{min-height:104px;resize:vertical}
   .row{grid-template-columns:1fr}
   .client-summary{grid-template-columns:1fr}
   .cardbody,.panel{padding:15px}
-  .filter-grid,.form-grid,.metric-grid,.wallet-mini{grid-template-columns:1fr}
+  .home-hero-shell{grid-template-columns:1fr}
+  .hero-mini-stats{grid-template-columns:1fr}
+  .goal-topline,.goalfoot{flex-direction:column;align-items:flex-start}
+  .filter-panel-head{flex-direction:column}
+  .filter-grid,.form-grid,.metric-grid,.wallet-mini,.filter-grid-4{grid-template-columns:1fr}
   .filter-actions{flex-direction:column}
   .mission-row{grid-template-columns:1fr}
   .mission-row-pay{text-align:left;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
   .mission-row-pay>b{margin:0}
   .pagination{grid-template-columns:1fr}.pagination>*{justify-self:stretch!important}
   .toolbar{align-items:flex-start;flex-direction:column}
+}
+
+
+@media(max-width:860px){
+  .home-hero-shell{grid-template-columns:1fr}
+  .filter-grid-4{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .goal-highlight{max-width:1000px}
 }
 
 @media(min-width:640px){
