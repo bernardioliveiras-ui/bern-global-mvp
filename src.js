@@ -1631,27 +1631,68 @@ function renderLanding() {
 
           <div class="cinema-card-track">
             <article class="category-card reveal">
-              <span>01</span><h3>Pesquisa</h3>
+              <span class="category-number">01</span>
+              <div class="category-icon">🔎</div>
+              <h3>Pesquisa</h3>
               <p>Levante preços, referências, contatos públicos ou informações específicas.</p>
+              <div class="category-chip">Busca orientada</div>
             </article>
             <article class="category-card reveal">
-              <span>02</span><h3>Teste</h3>
+              <span class="category-number">02</span>
+              <div class="category-icon">🧪</div>
+              <h3>Teste</h3>
               <p>Peça avaliações privadas de páginas, fluxos, anúncios ou experiências.</p>
+              <div class="category-chip">Feedback prático</div>
             </article>
             <article class="category-card reveal">
-              <span>03</span><h3>Opinião</h3>
+              <span class="category-number">03</span>
+              <div class="category-icon">💬</div>
+              <h3>Opinião</h3>
               <p>Compare ideias, nomes, criativos ou propostas e receba percepções reais.</p>
+              <div class="category-chip">Visão humana</div>
             </article>
             <article class="category-card reveal">
-              <span>04</span><h3>Levantamento</h3>
+              <span class="category-number">04</span>
+              <div class="category-icon">📋</div>
+              <h3>Levantamento</h3>
               <p>Organize pequenas listas ou colete dados seguindo instruções claras.</p>
+              <div class="category-chip">Execução guiada</div>
             </article>
           </div>
         </section>
 
-        <section class="cinema-screen cinema-final">
-          <div class="cinema-final-lion reveal">
-            <img src="${BRAND_LOGO_DATA}" alt="Leão Bern Nexus">
+        <section class="cinema-screen cinema-final cinema-final-split">
+          <div class="homeoffice-stage reveal">
+            <div class="homeoffice-glow"></div>
+            <article class="homeoffice-main">
+              <div class="homeoffice-monitor">
+                <div class="monitor-bar">
+                  <span></span><span></span><span></span>
+                </div>
+                <div class="monitor-content">
+                  <div class="person-emoji">🧑‍💻</div>
+                  <div class="monitor-text">
+                    <b>Home office + microtarefas</b>
+                    <small>Escolha missões, envie respostas e acompanhe seu saldo sem complicação.</small>
+                  </div>
+                </div>
+              </div>
+            </article>
+
+            <article class="homeoffice-float homeoffice-float-a">
+              <small>Vantagem</small>
+              <b>Faça no seu ritmo</b>
+            </article>
+
+            <article class="homeoffice-float homeoffice-float-b">
+              <small>Vantagem</small>
+              <b>Veja o valor antes de começar</b>
+            </article>
+
+            <article class="homeoffice-float homeoffice-float-c">
+              <small>Vantagem</small>
+              <b>Painel para trabalhador e contratante</b>
+            </article>
           </div>
 
           <div class="cinema-final-copy reveal">
@@ -1662,7 +1703,13 @@ function renderLanding() {
               para colocar pessoas reais ajudando seu negócio.
             </p>
 
-            <div class="cinema-actions cinema-actions-center">
+            <div class="final-adv-grid">
+              <div class="final-adv-item"><strong>Missões rápidas</strong><span>Pesquisa, teste, opinião e mais.</span></div>
+              <div class="final-adv-item"><strong>Fluxo simples</strong><span>Cadastro, execução e acompanhamento em poucos passos.</span></div>
+              <div class="final-adv-item"><strong>Dois perfis</strong><span>Trabalhador para renda extra e contratante para negócios.</span></div>
+            </div>
+
+            <div class="cinema-actions">
               <a class="cinema-btn cinema-btn-gold" href="/register?role=worker">
                 <strong>Quero fazer missões</strong>
                 <span>Criar conta de trabalhador</span>
@@ -2438,8 +2485,41 @@ html{scroll-behavior:smooth}
 .cinema-how{display:block;padding-top:110px}.cinema-section-title{max-width:850px}.cinema-section-title h2{font-size:clamp(44px,6vw,74px)}
 .cinema-steps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-top:44px}.cinema-step{min-height:300px;border:1px solid #282828;border-radius:22px;padding:23px;background:linear-gradient(180deg,#111,#0c0c0c);box-shadow:0 20px 50px rgba(0,0,0,.28);transition:transform .25s ease,border-color .25s ease}.cinema-step:hover{transform:translateY(-8px);border-color:#86672A}.cinema-step>span{font-size:11px;color:#E0B55A;font-weight:950}.cinema-step h3{font-size:25px;margin:125px 0 10px}.cinema-step p{color:#ABABAB;font-size:13px;line-height:1.55}
 .cinema-mid-cta{margin-top:20px;border:1px solid #2f2f2f;border-radius:18px;padding:17px 19px;display:flex;align-items:center;justify-content:space-between;gap:18px;background:#111}.cinema-mid-cta small,.cinema-mid-cta b{display:block}.cinema-mid-cta small{color:#B0B0B0}.cinema-mid-cta b{margin-top:4px;font-size:18px}.cinema-mid-cta a{background:#BC913C;color:#0A0A0A;text-decoration:none;padding:12px 15px;border-radius:11px;font-weight:950}
-.cinema-categories{display:block;padding-top:110px}.cinema-card-track{display:grid;grid-template-columns:repeat(4,minmax(260px,1fr));gap:14px;margin-top:44px}.category-card{min-height:360px;background:#fff;border:1px solid #DAD7D2;border-radius:22px;padding:23px;box-shadow:0 18px 46px rgba(10,10,10,.06);transition:transform .25s ease,box-shadow .25s ease}.category-card:hover{transform:translateY(-9px);box-shadow:0 28px 60px rgba(10,10,10,.10)}.category-card>span{font-size:10px;color:#86672A;font-weight:950}.category-card h3{font-size:28px;margin:165px 0 10px}.category-card p{color:#716E69;font-size:13px;line-height:1.55}
-.cinema-final{background:radial-gradient(circle at 50% 25%,rgba(188,145,60,.22),transparent 24rem),#0A0A0A;text-align:center;display:grid;place-items:center}.cinema-final-lion img{width:min(280px,48vw);border-radius:36px;box-shadow:0 30px 90px rgba(188,145,60,.18)}.cinema-final-copy{max-width:900px}.cinema-final-copy h2{font-size:clamp(44px,6vw,76px);margin-top:26px}.cinema-final-copy>p{color:#B9B9B9}
+.cinema-categories{display:block;padding-top:110px}
+.cinema-card-track{display:grid;grid-template-columns:repeat(4,minmax(260px,1fr));gap:14px;margin-top:44px}
+.category-card{position:relative;min-height:360px;background:#fff;border:1px solid #DAD7D2;border-radius:22px;padding:23px;box-shadow:0 18px 46px rgba(10,10,10,.06);transition:transform .25s ease,box-shadow .25s ease;overflow:hidden}
+.category-card:hover{transform:translateY(-9px);box-shadow:0 28px 60px rgba(10,10,10,.10)}
+.category-card:before{content:"";position:absolute;inset:auto -30px -40px auto;width:120px;height:120px;background:radial-gradient(circle,rgba(188,145,60,.12),transparent 70%)}
+.category-number{font-size:10px;color:#86672A;font-weight:950}
+.category-icon{width:66px;height:66px;border-radius:18px;display:grid;place-items:center;background:#F7F6F1;border:1px solid #E0D3B4;font-size:30px;margin-top:26px;box-shadow:0 10px 24px rgba(188,145,60,.08)}
+.category-card h3{font-size:28px;margin:34px 0 10px}
+.category-card p{color:#716E69;font-size:13px;line-height:1.55;max-width:250px}
+.category-chip{display:inline-flex;align-items:center;justify-content:center;margin-top:18px;padding:8px 12px;border-radius:999px;background:#0A0A0A;color:#E0B55A;font-size:11px;font-weight:800}
+.cinema-final{background:radial-gradient(circle at 12% 20%,rgba(188,145,60,.20),transparent 20rem),radial-gradient(circle at 80% 75%,rgba(188,145,60,.16),transparent 22rem),#0A0A0A}
+.cinema-final-split{grid-template-columns:minmax(360px,.95fr) minmax(0,1.05fr);gap:46px;text-align:left;align-items:center}
+.homeoffice-stage{position:relative;min-height:520px}
+.homeoffice-glow{position:absolute;inset:10% 10% auto 10%;height:220px;border-radius:999px;background:radial-gradient(circle,rgba(188,145,60,.30),transparent 70%);filter:blur(20px)}
+.homeoffice-main{position:absolute;left:5%;top:14%;width:min(420px,88%);padding:18px;background:rgba(255,255,255,.06);border:1px solid rgba(224,181,90,.26);border-radius:28px;box-shadow:0 30px 80px rgba(0,0,0,.30);backdrop-filter:blur(14px)}
+.homeoffice-monitor{background:#111;border:1px solid #2A2A2A;border-radius:22px;padding:16px}
+.monitor-bar{display:flex;gap:6px;margin-bottom:14px}
+.monitor-bar span{width:8px;height:8px;border-radius:50%;background:#4E4E4E}
+.monitor-content{display:grid;grid-template-columns:92px 1fr;gap:16px;align-items:center}
+.person-emoji{width:92px;height:92px;border-radius:22px;display:grid;place-items:center;font-size:50px;background:linear-gradient(145deg,#BC913C,#86672A)}
+.monitor-text b{display:block;font-size:20px;color:#fff}
+.monitor-text small{display:block;margin-top:8px;color:#BBB9B6;line-height:1.55;font-size:12px}
+.homeoffice-float{position:absolute;padding:14px 16px;border-radius:18px;background:#fff;color:#0A0A0A;border:1px solid #DAD7D2;box-shadow:0 18px 42px rgba(0,0,0,.18)}
+.homeoffice-float small{display:block;color:#716E69;font-size:10px}
+.homeoffice-float b{display:block;margin-top:5px;font-size:16px;line-height:1.35}
+.homeoffice-float-a{right:0;top:8%;width:210px;animation:floatB 5.6s ease-in-out infinite}
+.homeoffice-float-b{left:0;bottom:8%;width:220px;animation:floatC 6.1s ease-in-out infinite}
+.homeoffice-float-c{right:6%;bottom:18%;width:240px;animation:floatA 6.8s ease-in-out infinite}
+.cinema-final-copy{max-width:760px}
+.cinema-final-copy h2{font-size:clamp(44px,6vw,76px);margin-top:8px}
+.cinema-final-copy>p{color:#B9B9B9;max-width:640px}
+.final-adv-grid{display:grid;grid-template-columns:1fr;gap:10px;margin:24px 0 0}
+.final-adv-item{padding:14px 16px;border-radius:16px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.10)}
+.final-adv-item strong{display:block;color:#fff;font-size:15px}
+.final-adv-item span{display:block;margin-top:5px;color:#BBB9B6;font-size:12px;line-height:1.45}
 .cinema-mobile-cta{display:none}
 .reveal{opacity:0;transform:translateY(32px);transition:opacity .7s ease,transform .7s cubic-bezier(.2,.8,.2,1)}.reveal.is-visible{opacity:1;transform:none}
 @keyframes floatA{0%,100%{transform:translate3d(0,0,0) rotate(-1deg)}50%{transform:translate3d(0,-14px,0) rotate(.4deg)}}
@@ -2500,7 +2580,14 @@ html{scroll-behavior:smooth}
   .float-card-bottom,.biz-float-b{left:auto;right:8px;bottom:0;width:205px}
   .cinema-steps,.cinema-card-track{grid-template-columns:1fr}
   .cinema-step{min-height:220px}.cinema-step h3{margin-top:75px}
-  .category-card{min-height:250px}.category-card h3{margin-top:80px}
+  .category-card{min-height:250px}.category-card h3{margin-top:24px}.category-icon{margin-top:18px}
+  .cinema-final-split{grid-template-columns:1fr;gap:22px}
+  .homeoffice-stage{min-height:430px}
+  .homeoffice-main{left:0;top:68px;width:94%}
+  .homeoffice-float-a{right:0;top:0;width:180px}
+  .homeoffice-float-b{left:0;bottom:0;width:190px}
+  .homeoffice-float-c{right:12px;bottom:88px;width:210px}
+  .monitor-content{grid-template-columns:74px 1fr}.person-emoji{width:74px;height:74px;font-size:40px}
   .cinema-mid-cta{flex-direction:column;align-items:flex-start}
   .cinema-mobile-cta{position:fixed;z-index:130;left:8px;right:8px;bottom:8px;display:grid;grid-template-columns:1fr 1fr;gap:7px;padding:7px;background:rgba(255,255,255,.95);border:1px solid #E0B55A;border-radius:15px;box-shadow:0 14px 36px rgba(0,0,0,.22);backdrop-filter:blur(14px)}
   .cinema-mobile-cta a{text-align:center;text-decoration:none;padding:12px 7px;border-radius:10px;font-size:11px;font-weight:950}
