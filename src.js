@@ -58,7 +58,10 @@ export default {
         return await handleLogout(request, env.DB);
       }
 
-      if (!user) return redirect("/login", request);
+      if (!user) {
+        if (request.method === "GET" && path === "/") return renderLanding();
+        return redirect("/login", request);
+      }
 
       if (user.is_blocked) {
         return page("Conta suspensa", `
@@ -1343,10 +1346,161 @@ function signedBrl(v) {
   return `${n>=0?"+":""}${brl(n)}`;
 }
 
+function renderLanding() {
+  return page("BERN NEXUS — Missões e tarefas reais", `
+    <div class="lp">
+      <header class="lp-header">
+        <a class="brand lp-brand" href="/">BERN <b>NEXUS</b></a>
+        <nav class="lp-nav">
+          <a href="#como-funciona">Como funciona</a>
+          <a href="#para-quem">Para quem é</a>
+          <a href="/login">Entrar</a>
+          <a class="lp-nav-cta" href="/register?role=worker">Criar conta</a>
+        </nav>
+      </header>
+
+      <main class="lp-main">
+        <section class="lp-hero">
+          <div class="lp-hero-copy">
+            <span class="lp-eyebrow">PESSOAS REAIS · TAREFAS REAIS · RESULTADOS ÚTEIS</span>
+            <h1>Transforme seu tempo em <em>renda extra</em> — ou pequenas tarefas em resultados para o seu negócio.</h1>
+            <p>O Bern Nexus conecta quem quer realizar pequenas missões digitais com quem precisa de pesquisas, testes, opiniões e levantamentos feitos por pessoas reais.</p>
+
+            <div class="lp-cta-row">
+              <a class="lp-btn lp-btn-primary" href="/register?role=worker">
+                <span>Começar missões agora</span>
+                <small>Crie sua conta de trabalhador</small>
+              </a>
+              <a class="lp-btn lp-btn-secondary" href="/register?role=client">
+                <span>Publicar tarefas</span>
+                <small>Encontre pessoas para ajudar seu negócio</small>
+              </a>
+            </div>
+
+            <div class="lp-trust-row">
+              <span>✓ Cadastro simples</span>
+              <span>✓ Missões a partir de R$ 2,50</span>
+              <span>✓ Sem promessa de renda garantida</span>
+            </div>
+          </div>
+
+          <div class="lp-hero-visual">
+            <div class="lp-glow lp-glow-a"></div>
+            <div class="lp-glow lp-glow-b"></div>
+
+            <div class="lp-app-card lp-app-main">
+              <div class="lp-app-top">
+                <div>
+                  <small>Missão disponível</small>
+                  <b>Teste uma landing page</b>
+                </div>
+                <strong>R$ 5,00</strong>
+              </div>
+              <p>Analise a clareza da página e envie sua percepção em poucos minutos.</p>
+              <div class="lp-app-meta">
+                <span>⏱ 8 min</span>
+                <span>🎯 12 vagas</span>
+                <span>📅 2 dias</span>
+              </div>
+              <div class="lp-app-action">Fazer missão</div>
+            </div>
+
+            <div class="lp-floating lp-floating-top">
+              <small>Meta visual</small>
+              <b>R$ 50/dia</b>
+              <div class="lp-mini-bar"><i></i></div>
+            </div>
+
+            <div class="lp-floating lp-floating-bottom">
+              <small>Para negócios</small>
+              <b>Pessoas reais sob demanda</b>
+              <span>Pesquisa · teste · opinião</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="lp-strip">
+          <span>MICROTAREFAS</span><i></i><span>PESQUISAS</span><i></i><span>TESTES</span><i></i><span>OPINIÕES</span><i></i><span>LEVANTAMENTOS</span>
+        </section>
+
+        <section id="para-quem" class="lp-section">
+          <div class="lp-section-heading">
+            <span class="lp-section-kicker">DOIS LADOS. UM NEXUS.</span>
+            <h2>Escolha como você quer usar a plataforma.</h2>
+            <p>O trabalhador encontra missões. O contratante publica necessidades. O Bern Nexus organiza o encontro entre os dois.</p>
+          </div>
+
+          <div class="lp-audience-grid">
+            <article class="lp-audience-card">
+              <span class="lp-card-number">01</span>
+              <div class="lp-card-icon">↗</div>
+              <h3>Quero ganhar com missões</h3>
+              <p>Use alguns minutos do seu dia para realizar pequenas tarefas digitais e receber a recompensa definida em cada missão aprovada.</p>
+              <a href="/register?role=worker">Criar perfil de trabalhador →</a>
+            </article>
+
+            <article class="lp-audience-card lp-audience-highlight">
+              <span class="lp-card-number">02</span>
+              <div class="lp-card-icon">＋</div>
+              <h3>Quero melhorar meu negócio</h3>
+              <p>Publique pesquisas, testes e tarefas rápidas, defina quantas pessoas precisa e acompanhe os resultados em um único painel.</p>
+              <a href="/register?role=client">Criar perfil de contratante →</a>
+            </article>
+          </div>
+        </section>
+
+        <section id="como-funciona" class="lp-section lp-how">
+          <div class="lp-section-heading">
+            <span class="lp-section-kicker">SIMPLES DE ENTENDER</span>
+            <h2>Do pedido ao resultado em poucos passos.</h2>
+          </div>
+
+          <div class="lp-steps">
+            <div class="lp-step"><b>01</b><h3>Publique ou encontre</h3><p>Contratantes criam tarefas. Trabalhadores escolhem as missões disponíveis.</p></div>
+            <div class="lp-step"><b>02</b><h3>Execute</h3><p>A pessoa segue as instruções e envia resposta ou comprovante quando necessário.</p></div>
+            <div class="lp-step"><b>03</b><h3>Aprove</h3><p>O contratante analisa o trabalho recebido e aprova ou rejeita pelo painel.</p></div>
+            <div class="lp-step"><b>04</b><h3>Registre o valor</h3><p>A recompensa aprovada entra na carteira interna do trabalhador para acompanhamento.</p></div>
+          </div>
+        </section>
+
+        <section class="lp-section lp-problem">
+          <div class="lp-section-heading">
+            <span class="lp-section-kicker">PROBLEMAS PEQUENOS. AJUDA RÁPIDA.</span>
+            <h2>Nem toda necessidade precisa virar projeto grande.</h2>
+          </div>
+
+          <div class="lp-problem-grid">
+            <div><span>Pesquisa</span><h3>“Preciso levantar informações rapidamente.”</h3><p>Transforme a necessidade em uma missão clara e distribua para várias pessoas.</p></div>
+            <div><span>Teste</span><h3>“Não sei se minha página está fácil de entender.”</h3><p>Peça avaliações privadas de usabilidade e clareza antes de divulgar para mais clientes.</p></div>
+            <div><span>Opinião</span><h3>“Quero comparar duas ideias antes de decidir.”</h3><p>Receba percepções estruturadas de participantes reais em vez de depender de achismo.</p></div>
+          </div>
+        </section>
+
+        <section class="lp-final-cta">
+          <span class="lp-section-kicker">COMECE AGORA</span>
+          <h2>Você quer ganhar com pequenas missões ou colocar pessoas para ajudar seu negócio?</h2>
+          <p>Escolha um lado, crie sua conta e entre no Bern Nexus.</p>
+          <div class="lp-cta-row lp-cta-center">
+            <a class="lp-btn lp-btn-primary" href="/register?role=worker"><span>Quero começar missões</span><small>Criar conta gratuita</small></a>
+            <a class="lp-btn lp-btn-secondary" href="/register?role=client"><span>Quero publicar tarefas</span><small>Criar conta de contratante</small></a>
+          </div>
+        </section>
+      </main>
+
+      <footer class="lp-footer">
+        <div class="brand">BERN <b>NEXUS</b></div>
+        <p>Pequenas missões. Pessoas reais. Resultados úteis.</p>
+        <a href="/login">Já tenho conta →</a>
+      </footer>
+    </div>
+  `);
+}
+
 function renderAuth(mode, url) {
   const msg = url.searchParams.get("msg") || "";
   const err = url.searchParams.get("err") || "";
   const register = mode === "register";
+  const requestedRole = ["worker","client","both"].includes(url.searchParams.get("role")) ? url.searchParams.get("role") : "worker";
 
   return page("BERN NEXUS", `
     <div class="auth-wrap">
@@ -1370,15 +1524,16 @@ function renderAuth(mode, url) {
           ${register ? `
             <label>Como quer usar o Nexus?</label>
             <select class="field" name="role">
-              <option value="worker">Quero ganhar fazendo missões</option>
-              <option value="client">Quero publicar missões</option>
-              <option value="both">Quero fazer os dois</option>
+              <option value="worker" ${requestedRole==="worker"?"selected":""}>Quero ganhar fazendo missões</option>
+              <option value="client" ${requestedRole==="client"?"selected":""}>Quero publicar missões</option>
+              <option value="both" ${requestedRole==="both"?"selected":""}>Quero fazer os dois</option>
             </select>
           ` : ""}
           <button class="btn primary wide">${register ? "Criar conta" : "Entrar"}</button>
         </form>
 
         <a class="switch" href="${register ? "/login" : "/register"}">${register ? "Já tenho conta" : "Criar minha conta"}</a>
+        <a class="auth-home-link" href="/">← Voltar para a página inicial</a>
       </div>
     </div>
   `);
@@ -1797,6 +1952,33 @@ textarea.field{min-height:104px;resize:vertical}
 .nav strong{display:block;font-size:18px;line-height:1}
 .nav a.active{color:var(--accent);background:rgba(80,227,164,.07)}
 
+
+.lp{min-height:100vh;background:
+  radial-gradient(circle at 78% 8%,rgba(80,227,164,.13),transparent 24rem),
+  radial-gradient(circle at 20% 28%,rgba(58,134,255,.08),transparent 28rem),
+  #07111f;color:#edf5ff}
+.lp-header{position:sticky;top:0;z-index:60;max-width:1240px;margin:0 auto;padding:18px 24px;display:flex;align-items:center;justify-content:space-between;gap:20px;background:rgba(7,17,31,.82);border-bottom:1px solid rgba(41,65,89,.5);backdrop-filter:blur(16px)}
+.lp-brand{font-size:18px}
+.lp-nav{display:flex;align-items:center;gap:22px;font-size:12px}.lp-nav a{text-decoration:none;color:#b6c8d8}.lp-nav a:hover{color:#fff}.lp-nav-cta{border:1px solid rgba(80,227,164,.35);background:rgba(80,227,164,.08);color:#8ef0c1!important;border-radius:999px;padding:9px 14px}
+.lp-main{max-width:1240px;margin:0 auto;padding:0 24px}
+.lp-hero{min-height:680px;display:grid;grid-template-columns:minmax(0,1.08fr) minmax(390px,.92fr);gap:54px;align-items:center;padding:72px 0 52px}
+.lp-hero-copy{min-width:0}.lp-eyebrow,.lp-section-kicker{display:inline-block;color:#67e9af;font-size:11px;font-weight:900;letter-spacing:1.4px;margin-bottom:15px}
+.lp-hero h1{max-width:760px;margin:0;font-size:clamp(48px,6.2vw,82px);line-height:.98;letter-spacing:-3px}.lp-hero h1 em{font-style:normal;color:#66e9af}.lp-hero-copy>p{max-width:700px;color:#9db2c5;font-size:17px;line-height:1.65;margin:24px 0 0}
+.lp-cta-row{display:flex;gap:12px;flex-wrap:wrap;margin-top:30px}.lp-btn{min-width:245px;min-height:66px;border-radius:16px;padding:13px 17px;display:flex;flex-direction:column;justify-content:center;text-decoration:none;border:1px solid transparent}.lp-btn span{font-weight:950;font-size:15px}.lp-btn small{margin-top:4px}.lp-btn-primary{background:#50e3a4;color:#062117;box-shadow:0 14px 34px rgba(80,227,164,.16)}.lp-btn-primary small{color:#174a37}.lp-btn-secondary{background:#0d1b2a;border-color:#2a465e;color:#eff7ff}.lp-btn-secondary small{color:#8ea5b9}
+.lp-trust-row{display:flex;gap:18px;flex-wrap:wrap;margin-top:20px;color:#8ea4b8;font-size:11px}
+.lp-hero-visual{position:relative;min-height:500px;display:grid;place-items:center}.lp-glow{position:absolute;border-radius:999px;filter:blur(8px);opacity:.65}.lp-glow-a{width:260px;height:260px;background:rgba(80,227,164,.14);right:8%;top:10%}.lp-glow-b{width:230px;height:230px;background:rgba(60,116,218,.12);left:4%;bottom:8%}
+.lp-app-card{position:relative;z-index:3;width:min(430px,92%);background:linear-gradient(180deg,#0f2234,#0b1b2a);border:1px solid #2a4b63;border-radius:24px;padding:22px;box-shadow:0 32px 80px rgba(0,0,0,.34);transform:rotate(-1.6deg)}
+.lp-app-top{display:flex;justify-content:space-between;gap:14px;align-items:flex-start}.lp-app-top small{display:block}.lp-app-top b{display:block;font-size:20px;margin-top:5px}.lp-app-top strong{color:#58edac;font-size:22px}.lp-app-card p{color:#9db1c3;line-height:1.5;font-size:13px}.lp-app-meta{display:flex;gap:11px;flex-wrap:wrap;color:#849cb1;font-size:11px;margin:18px 0}.lp-app-action{text-align:center;background:#50e3a4;color:#062117;border-radius:13px;padding:13px;font-weight:950}
+.lp-floating{position:absolute;z-index:5;background:rgba(8,22,35,.94);border:1px solid #29465d;border-radius:17px;padding:13px 15px;box-shadow:0 18px 46px rgba(0,0,0,.28)}.lp-floating small,.lp-floating span{display:block}.lp-floating b{display:block;margin:4px 0;font-size:16px}.lp-floating-top{right:0;top:8%}.lp-floating-bottom{left:0;bottom:10%}.lp-floating-bottom span{color:#8fa6b9;font-size:10px}.lp-mini-bar{width:130px;height:6px;background:#06111c;border-radius:99px;margin-top:8px}.lp-mini-bar i{display:block;width:62%;height:100%;background:#50e3a4;border-radius:99px}
+.lp-strip{border-top:1px solid #173149;border-bottom:1px solid #173149;display:flex;align-items:center;justify-content:space-between;gap:16px;overflow:hidden;padding:18px 2px;color:#8ca4b8;font-size:11px;font-weight:900;letter-spacing:1px}.lp-strip i{width:4px;height:4px;border-radius:50%;background:#50e3a4;flex:0 0 auto}
+.lp-section{padding:100px 0}.lp-section-heading{max-width:760px;margin-bottom:38px}.lp-section-heading h2{font-size:clamp(36px,5vw,60px);line-height:1.02;letter-spacing:-2px;margin:0}.lp-section-heading p{color:#94aabd;font-size:16px;line-height:1.6}
+.lp-audience-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.lp-audience-card{position:relative;min-height:330px;background:#0b1a29;border:1px solid #203a50;border-radius:24px;padding:27px;overflow:hidden}.lp-audience-highlight{background:linear-gradient(145deg,#0d2830,#0b1a29)}.lp-card-number{position:absolute;right:22px;top:16px;color:#27455c;font-size:54px;font-weight:950}.lp-card-icon{width:48px;height:48px;border-radius:15px;display:grid;place-items:center;background:#143248;color:#65ecb1;font-size:25px}.lp-audience-card h3{font-size:28px;margin:48px 0 10px}.lp-audience-card p{max-width:520px;color:#93aabd;line-height:1.6}.lp-audience-card a{display:inline-block;margin-top:18px;color:#61e8ad;text-decoration:none;font-weight:850}
+.lp-how{border-top:1px solid #163047}.lp-steps{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.lp-step{background:#0a1927;border:1px solid #1d364a;border-radius:18px;padding:21px}.lp-step>b{font-size:13px;color:#5ce8ab}.lp-step h3{font-size:19px;margin:28px 0 8px}.lp-step p{color:#8fa6b8;line-height:1.55;font-size:13px}
+.lp-problem{border-top:1px solid #163047}.lp-problem-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.lp-problem-grid>div{background:#0b1927;border:1px solid #1f384d;border-radius:19px;padding:21px}.lp-problem-grid span{color:#61e8ad;font-size:10px;text-transform:uppercase;font-weight:900;letter-spacing:1px}.lp-problem-grid h3{font-size:19px;line-height:1.3}.lp-problem-grid p{color:#8ea5b8;font-size:13px;line-height:1.55}
+.lp-final-cta{text-align:center;padding:100px 30px;margin:24px 0 80px;border:1px solid #28506a;border-radius:30px;background:radial-gradient(circle at 50% 0%,rgba(80,227,164,.13),transparent 50%),#0b1a29}.lp-final-cta h2{max-width:880px;margin:0 auto;font-size:clamp(36px,5vw,60px);line-height:1.03;letter-spacing:-2px}.lp-final-cta>p{color:#97adbf;font-size:16px}.lp-cta-center{justify-content:center}
+.lp-footer{max-width:1240px;margin:0 auto;padding:28px 24px 48px;border-top:1px solid #173149;display:flex;align-items:center;justify-content:space-between;gap:18px;color:#8ca3b6;font-size:12px}.lp-footer p{margin:0}.lp-footer a{color:#60e8ad;text-decoration:none}
+.auth-home-link{display:block;margin-top:10px;color:#829aae;text-decoration:none;font-size:12px}
+
 .auth-wrap{
   min-height:100vh;
   display:grid;
@@ -1872,6 +2054,29 @@ textarea.field{min-height:104px;resize:vertical}
 .contractor-line{font-size:11px;color:#849caf;margin:10px 0}.cost-line{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-top:1px solid #1c3348;font-size:12px}.cost-line b{color:#bcd0e0}.topgap{margin-top:8px}
 .profile-head{margin-bottom:14px}.initials{font-weight:950;color:var(--accent)}.profile-badges{display:flex;gap:6px;margin-top:7px}.reputation p{margin:7px 0}.history{margin-top:10px}.history h3{margin-top:0}.history-row{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-top:1px solid #1c3348}.history-row:first-of-type{border-top:0}.history-row small{display:block;margin-top:3px}.history-row strong.positive{color:var(--accent)}.history-row strong.negative{color:#ff8fa9}.ledger-values{text-align:right;font-size:11px;color:#a7bbcb}.ledger-values span{display:block}.admin-link{max-width:260px}.logoutform{margin-top:16px}
 .adminpill{border-color:#66552d;color:#ffd776}.admin-table-wrap{overflow:auto;border:1px solid var(--line);border-radius:15px;max-width:100%}.admin-table{width:100%;border-collapse:collapse;min-width:760px;background:var(--panel)}.admin-table th,.admin-table td{text-align:left;padding:11px;border-bottom:1px solid #1d3449;font-size:12px;vertical-align:top}.admin-table th{color:#8fa5b8;background:#091725}.admin-table td small{display:block;margin-top:3px}.inline-form{display:flex;gap:5px;margin:3px 0}.mini-input{width:85px;background:#081521;border:1px solid var(--line-2);color:white;border-radius:8px;padding:6px}.mini-btn{border:1px solid #31506a;background:#132a3e;color:#dceaf6;border-radius:8px;padding:6px 8px;cursor:pointer;white-space:nowrap}.danger-mini{border-color:#703449;background:#3a1d27;color:#ffd4df}
+
+
+@media(max-width:900px){
+  .lp-hero{grid-template-columns:1fr;min-height:auto;padding-top:58px}
+  .lp-hero-visual{min-height:460px}
+  .lp-audience-grid,.lp-problem-grid{grid-template-columns:1fr}
+  .lp-steps{grid-template-columns:repeat(2,1fr)}
+}
+@media(max-width:680px){
+  .lp-header{padding:15px 16px}.lp-nav>a:not(.lp-nav-cta):not(:last-child){display:none}
+  .lp-main{padding:0 16px}
+  .lp-hero{gap:28px;padding:48px 0 34px}
+  .lp-hero h1{font-size:clamp(43px,13vw,62px);letter-spacing:-2px}
+  .lp-hero-copy>p{font-size:15px}
+  .lp-cta-row{flex-direction:column}.lp-btn{width:100%;min-width:0}
+  .lp-trust-row{gap:8px 14px}
+  .lp-hero-visual{min-height:390px}.lp-floating-top{right:0}.lp-floating-bottom{left:0}
+  .lp-strip{justify-content:flex-start;overflow:auto}
+  .lp-section{padding:72px 0}.lp-section-heading h2{font-size:40px}
+  .lp-audience-card{min-height:auto}.lp-steps{grid-template-columns:1fr}
+  .lp-final-cta{padding:70px 18px;margin-bottom:48px}.lp-final-cta h2{font-size:38px}
+  .lp-footer{padding:24px 16px 40px;flex-direction:column;align-items:flex-start}
+}
 
 @media(max-width:520px){
   .head-name{display:none}
