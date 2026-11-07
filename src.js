@@ -97,7 +97,8 @@ export default {
             <div class="brand big">BERN <b>NEXUS</b></div>
             <h1>Algo deu errado</h1>
             <p class="muted">${esc(String(e?.message || e))}</p>
-            <a class="btn primary wide linkbtn" href="/">Voltar ao início</a>
+            <div class="notice">Se o erro aconteceu no cadastro, tente entrar novamente. A v0.3.1 separa criação de conta e criação de sessão.</div>
+            <a class="btn primary wide linkbtn" href="/login">Ir para o login</a>
           </div>
         </div>`, 500);
     }
@@ -195,8 +196,7 @@ async function handleRegister(request, db) {
   const userId = Number(r.meta?.last_row_id || 0);
   if (!userId) throw new Error("Não foi possível criar o usuário.");
 
-  const token = await createSession(db, userId);
-  return redirect("/?msg=" + enc("Conta criada. Bem-vindo ao Bern Nexus!"), request, sessionCookie(token));
+  return redirect("/login?msg=" + enc("Conta criada com sucesso. Agora entre com seu e-mail e senha."), request);
 }
 
 async function handleLogin(request, db) {
@@ -345,8 +345,18 @@ async function handleMissionStatus(request, db, user, missionId, status) {
 }
 
 async function renderDashboard(request, db, user, url) {
-  const view = ["home","mine","create","client","profile"].includes(url.searchParams.get("view"))
+  if (!user || !user.id) return redirect("/login?err=" + enc("Sua sessão não foi carregada. Entre novamente."), request);
+
+  let view = ["home","mine","create","client","profile"].includes(url.searchParams.get("view"))
     ? url.searchParams.get("view") : "home";
+
+  // Trava real por perfil, inclusive se a pessoa digitar a URL manualmente.
+  if (user.role === "worker" && ["create","client"].includes(view)) {
+    return redirect("/?view=home&err=" + enc("Essa área é exclusiva para contratantes."), request);
+  }
+  if (user.role === "client" && view === "mine") {
+    return redirect("/?view=home&err=" + enc("Essa área é exclusiva para trabalhadores."), request);
+  }
 
   const msg = url.searchParams.get("msg") || "";
   const err = url.searchParams.get("err") || "";
@@ -394,7 +404,10 @@ async function renderDashboard(request, db, user, url) {
       <header>
         <div class="toprow">
           <a class="brand" href="/">BERN <b>NEXUS</b></a>
-          <span class="pill">${roleLabel(user.role)}</span>
+          <div class="head-user">
+            <span class="head-name">${esc(user.name || "Usuário")}</span>
+            <span class="pill">${roleLabel(user.role)}</span>
+          </div>
         </div>
       </header>
 
@@ -402,7 +415,9 @@ async function renderDashboard(request, db, user, url) {
         ${msg ? `<div class="flash ok">${esc(msg)}</div>` : ""}
         ${err ? `<div class="flash err">${esc(err)}</div>` : ""}
 
-        ${view === "home" ? renderHome(user, missions.results || [], earnedToday, progress) : ""}
+        ${view === "home" ? (user.role === "client"
+          ? renderClientHome(user, clientMissions.results || [], clientSubs.results || [])
+          : renderHome(user, missions.results || [], earnedToday, progress)) : ""}
         ${view === "mine" ? renderMine(user, mine.results || []) : ""}
         ${view === "create" ? renderCreate(user) : ""}
         ${view === "client" ? renderClient(user, clientMissions.results || [], clientSubs.results || []) : ""}
@@ -448,6 +463,50 @@ function renderHome(user, missions, earnedToday, progress) {
     <div class="section-title"><h2>Missões disponíveis</h2><span>${available.length}</span></div>
     <div class="grid">
       ${available.length ? available.map(m => missionCard(m, user)).join("") : `<div class="empty">Nenhuma missão disponível agora.</div>`}
+    </div>
+  `;
+}
+
+function renderClientHome(user, missions, subs) {
+  const openCount = missions.filter(m => m.status === "open").length;
+  const waiting = subs.filter(s => s.status === "submitted").length;
+  const approved = subs.filter(s => s.status === "approved").length;
+
+  return `
+    <section class="hero">
+      <h1>Seu painel de missões.</h1>
+      <p class="muted">Publique tarefas e acompanhe os trabalhos recebidos.</p>
+    </section>
+
+    <div class="client-summary">
+      <div class="summary-box"><small>Missões abertas</small><b>${openCount}</b></div>
+      <div class="summary-box"><small>Aguardando aprovação</small><b>${waiting}</b></div>
+      <div class="summary-box"><small>Trabalhos aprovados</small><b>${approved}</b></div>
+    </div>
+
+    <div class="row action-row">
+      <a class="btn primary wide linkbtn nomargin" href="/?view=create">＋ Publicar missão</a>
+      <a class="btn secondary wide linkbtn nomargin" href="/?view=client">Ver trabalhos</a>
+    </div>
+
+    <div class="notice">Este perfil é de contratante. O feed de missões para ganhar dinheiro fica oculto neste perfil.</div>
+
+    <div class="section-title"><h2>Suas missões recentes</h2><span>${missions.length}</span></div>
+    <div class="grid">
+      ${missions.length ? missions.slice(0,5).map(m => `
+        <article class="card">
+          ${m.image_data ? `<img class="cardimg" src="${m.image_data}" alt="">` : ""}
+          <div class="cardbody">
+            <div class="meta"><span class="tag">${esc(m.category).toUpperCase()}</span><span class="reward">${brl(m.reward)}</span></div>
+            <h3>${esc(m.title)}</h3>
+            <div class="stats">
+              <span>${Number(m.submissions_count||0)} participações</span>
+              <span>${Number(m.approved_count||0)} aprovadas</span>
+              <span>${esc(m.status)}</span>
+            </div>
+          </div>
+        </article>
+      `).join("") : `<div class="empty">Você ainda não publicou nenhuma missão.</div>`}
     </div>
   `;
 }
@@ -599,27 +658,49 @@ function renderClient(user, missions, subs) {
 }
 
 function renderProfile(user, balance, today) {
+  const safeUser = user || {name:"Usuário",email:""};
   return `
     <section class="hero"><h1>Perfil</h1></section>
     <div class="panel">
       <div class="userline">
         <div class="avatar">👤</div>
-        <div><b>${esc(user.name)}</b><div class="muted small">${esc(user.email)}</div></div>
+        <div><b>${esc(safeUser.name || "Usuário")}</b><div class="muted small">${esc(safeUser.email || "")}</div></div>
       </div>
       <hr>
       <small>Saldo aprovado</small>
       <div class="money">${brl(balance)}</div>
       <p class="muted">Hoje: ${brl(today)}</p>
-      <div class="notice">O saldo nesta versão é interno para testar o fluxo. Ainda não existe saque Pix real.</div>
+      <div class="notice"><b>Perfil:</b> ${esc(roleLabel(user.role))}. As áreas do outro perfil ficam bloqueadas. O saldo nesta versão é interno para testar o fluxo.</div>
       <form method="post" action="/logout"><button class="btn secondary wide">Sair</button></form>
     </div>
   `;
 }
 
 function renderNav(view, user) {
+  if (user.role === "worker") {
+    return `
+      <nav class="nav nav-worker">
+        <a class="${view==="home"?"active":""}" href="/?view=home"><strong>⌂</strong>Missões</a>
+        <a class="${view==="mine"?"active":""}" href="/?view=mine"><strong>✓</strong>Minhas</a>
+        <a class="${view==="profile"?"active":""}" href="/?view=profile"><strong>●</strong>Perfil</a>
+      </nav>
+    `;
+  }
+
+  if (user.role === "client") {
+    return `
+      <nav class="nav nav-client">
+        <a class="${view==="home"?"active":""}" href="/?view=home"><strong>⌂</strong>Início</a>
+        <a class="${view==="create"?"active":""}" href="/?view=create"><strong>＋</strong>Publicar</a>
+        <a class="${view==="client"?"active":""}" href="/?view=client"><strong>▣</strong>Trabalhos</a>
+        <a class="${view==="profile"?"active":""}" href="/?view=profile"><strong>●</strong>Perfil</a>
+      </nav>
+    `;
+  }
+
   return `
     <nav class="nav">
-      <a class="${view==="home"?"active":""}" href="/?view=home"><strong>⌂</strong>Início</a>
+      <a class="${view==="home"?"active":""}" href="/?view=home"><strong>⌂</strong>Missões</a>
       <a class="${view==="mine"?"active":""}" href="/?view=mine"><strong>✓</strong>Minhas</a>
       <a class="${view==="create"?"active":""}" href="/?view=create"><strong>＋</strong>Publicar</a>
       <a class="${view==="client"?"active":""}" href="/?view=client"><strong>▣</strong>Contratante</a>
@@ -672,12 +753,20 @@ function renderAuth(mode, url) {
 async function currentUser(request, db) {
   const token = getCookie(request, "bn_session");
   if (!token) return null;
-  return await db.prepare(`
+  const row = await db.prepare(`
     SELECT u.id,u.name,u.email,u.role,u.created_at
     FROM sessions s JOIN users u ON u.id=s.user_id
     WHERE s.token=? AND s.expires_at>CURRENT_TIMESTAMP
     LIMIT 1
   `).bind(token).first();
+  if (!row || !row.id) return null;
+  return {
+    id: Number(row.id),
+    name: String(row.name || "Usuário"),
+    email: String(row.email || ""),
+    role: ["worker","client","both"].includes(String(row.role)) ? String(row.role) : "worker",
+    created_at: row.created_at || ""
+  };
 }
 
 async function createSession(db, userId) {
@@ -760,21 +849,449 @@ function page(title, body, status=200) {
 <meta name="theme-color" content="#07111f">
 <title>${esc(title)}</title>
 <style>
-*{box-sizing:border-box}html{background:#07111f}body{margin:0;background:#07111f;color:#edf5ff;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
-button,input,textarea,select{font:inherit}.app{max-width:620px;margin:auto;min-height:100vh;background:linear-gradient(180deg,#0b1727,#07111f 38%);padding-bottom:92px}
-header{position:sticky;top:0;z-index:20;padding:17px;background:rgba(7,17,31,.95);backdrop-filter:blur(12px);border-bottom:1px solid #173149}.toprow{display:flex;justify-content:space-between;align-items:center;gap:12px}
-.brand{font-weight:950;letter-spacing:.4px;color:#fff;text-decoration:none}.brand b{color:#50e3a4}.brand.big{font-size:24px;margin-bottom:20px}.pill{font-size:10px;border:1px solid #2a4259;border-radius:999px;padding:6px 8px;color:#9fb5c8}
-main{padding:16px}.hero h1{font-size:28px;line-height:1.08;margin:5px 0 7px}.hero p{margin-top:0}.muted{color:#91a6b9}.small,small{font-size:12px;color:#91a6b9}
-.goal{background:linear-gradient(135deg,#12364b,#0b2537);border:1px solid #24506b;border-radius:20px;padding:17px;margin:14px 0}.goalrow{display:flex;justify-content:space-between;gap:12px;align-items:end}.goalright{text-align:right}.money{font-size:29px;font-weight:950;margin-top:4px}.bar{height:9px;background:#07131f;border-radius:99px;overflow:hidden;margin-top:12px}.bar i{display:block;height:100%;background:#50e3a4;border-radius:99px}.goaltext{font-size:12px;color:#9db1c3;margin-top:8px}
-.notice{padding:11px 12px;border:1px solid #5c4c2f;background:#2a2316;color:#f0d494;border-radius:13px;font-size:12px;line-height:1.45;margin:12px 0}.flash{padding:11px 12px;border-radius:13px;margin-bottom:12px;font-size:13px}.flash.ok{background:#123329;border:1px solid #28694f;color:#8ff2c5}.flash.err{background:#351b25;border:1px solid #6f3043;color:#ffb4c4}
-.section-title{display:flex;justify-content:space-between;align-items:center;margin:18px 0 10px}.section-title.spaced{margin-top:28px}.section-title h2{margin:0;font-size:18px}.section-title span{font-size:12px;color:#8fa5b8}
-.grid{display:grid;gap:12px}.card{background:#0d1b2a;border:1px solid #20384e;border-radius:19px;overflow:hidden}.cardimg{width:100%;max-height:240px;object-fit:cover;background:#091521;display:block}.cardbody{padding:15px}.meta{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:9px}.tag{font-size:10px;font-weight:900;background:#15344a;color:#9fdcff;padding:5px 7px;border-radius:999px}.reward{font-size:18px;font-weight:950;color:#58edac}.card h3{margin:0 0 7px;font-size:17px}.card p{font-size:13px;line-height:1.45;color:#9cb0c2}.instruction,.answer{font-size:12px;line-height:1.45;background:#081521;border:1px solid #1e354b;border-radius:12px;padding:10px;margin:10px 0;color:#bfd0df}.stats{font-size:11px;color:#819aae;display:flex;gap:12px;flex-wrap:wrap;margin:12px 0}
-.btn{border:0;border-radius:12px;padding:11px 13px;font-weight:900;cursor:pointer}.primary{background:#50e3a4;color:#062117}.secondary{background:#12263a;color:#e6f1fc;border:1px solid #29435b}.danger{background:#3b1b25;color:#ffd7e2;border:1px solid #6c3042}.wide{width:100%}.linkbtn{display:block;text-align:center;text-decoration:none;margin-top:12px}.row{display:grid;grid-template-columns:1fr 1fr;gap:9px}.row form{margin:0}
-.panel{background:#0d1b2a;border:1px solid #20384e;border-radius:19px;padding:16px}label{display:block;font-size:12px;color:#9bb0c3;margin:12px 0 6px}.field{width:100%;border:1px solid #294159;background:#081521;color:#edf5ff;border-radius:12px;padding:11px 12px;outline:none}.field:focus{border-color:#50e3a4}textarea.field{min-height:95px;resize:vertical}.preview,.proof{display:none;width:100%;max-height:240px;object-fit:cover;border-radius:13px;margin:10px 0}.proof{display:block}
-.nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:min(620px,100%);display:grid;grid-template-columns:repeat(5,1fr);background:rgba(7,17,31,.98);border-top:1px solid #193248;padding:8px 6px max(8px,env(safe-area-inset-bottom));z-index:30}.nav a{color:#829aae;text-decoration:none;text-align:center;font-size:10px;padding:5px}.nav strong{display:block;font-size:18px}.nav a.active{color:#50e3a4}
-.auth-wrap{min-height:100vh;display:grid;place-items:center;padding:20px}.auth-card{width:min(430px,100%);background:#0d1b2a;border:1px solid #20384e;border-radius:22px;padding:20px}.auth-card h1{margin-bottom:6px}.auth-card form .btn{margin-top:15px}.switch{display:block;color:#50e3a4;text-decoration:none;margin-top:14px;font-size:13px}
-.userline{display:flex;gap:12px;align-items:center}.avatar{width:52px;height:52px;border-radius:16px;background:#17364d;display:grid;place-items:center;font-size:23px}.panel hr{border:0;border-top:1px solid #20384e;margin:18px 0}.empty{text-align:center;padding:30px 12px;color:#839bae}.status{font-size:11px;font-weight:900;text-transform:uppercase}.started{color:#8bcaff}.submitted{color:#ffc978}.approved{color:#55e9aa}.rejected{color:#ff8fa9}
-@media(min-width:760px){body{padding:18px 0}.app{border:1px solid #173149;border-radius:28px;overflow:hidden;min-height:calc(100vh - 36px)}.nav{bottom:18px;border-radius:0 0 28px 28px}}
+:root{
+  --bg:#07111f;
+  --panel:#0d1b2a;
+  --panel-2:#0a1826;
+  --line:#20384e;
+  --line-2:#294159;
+  --text:#edf5ff;
+  --muted:#91a6b9;
+  --accent:#50e3a4;
+  --accent-dark:#062117;
+}
+*{box-sizing:border-box}
+html{background:var(--bg)}
+body{
+  margin:0;
+  min-width:320px;
+  background:
+    radial-gradient(circle at 10% 0%,rgba(27,82,103,.18),transparent 34rem),
+    var(--bg);
+  color:var(--text);
+  font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+}
+button,input,textarea,select{font:inherit}
+button,a,input,textarea,select{-webkit-tap-highlight-color:transparent}
+a{color:inherit}
+
+.app{
+  width:100%;
+  max-width:1180px;
+  min-height:100vh;
+  margin:0 auto;
+  background:linear-gradient(180deg,#0a1726 0%,#07111f 42%);
+}
+header{
+  position:sticky;
+  top:0;
+  z-index:40;
+  min-height:64px;
+  padding:14px 18px;
+  background:rgba(7,17,31,.94);
+  backdrop-filter:blur(14px);
+  border-bottom:1px solid #173149;
+}
+.toprow{
+  min-height:36px;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:16px;
+}
+.brand{
+  font-weight:950;
+  letter-spacing:.5px;
+  color:#fff;
+  text-decoration:none;
+  white-space:nowrap;
+}
+.brand b{color:var(--accent)}
+.brand.big{font-size:24px;margin-bottom:20px}
+.head-user{display:flex;align-items:center;gap:10px;min-width:0}
+.head-name{
+  max-width:180px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-size:12px;
+  color:#b8c9d8;
+}
+.pill{
+  white-space:nowrap;
+  font-size:10px;
+  border:1px solid #2a4259;
+  border-radius:999px;
+  padding:6px 9px;
+  color:#9fb5c8;
+}
+main{
+  width:100%;
+  min-width:0;
+  padding:22px 18px 112px;
+}
+.hero{
+  margin-bottom:16px;
+}
+.hero h1{
+  max-width:760px;
+  margin:0 0 8px;
+  font-size:clamp(26px,5vw,38px);
+  line-height:1.07;
+  letter-spacing:-.7px;
+}
+.hero p{max-width:720px;margin:0}
+.muted{color:var(--muted)}
+.small,small{font-size:12px;color:var(--muted)}
+
+.goal{
+  max-width:820px;
+  background:linear-gradient(135deg,#12364b,#0b2537);
+  border:1px solid #24506b;
+  border-radius:20px;
+  padding:18px;
+  margin:16px 0;
+}
+.goalrow{display:flex;justify-content:space-between;gap:16px;align-items:flex-end}
+.goalright{text-align:right}
+.money{font-size:30px;font-weight:950;margin-top:4px}
+.bar{height:9px;background:#07131f;border-radius:99px;overflow:hidden;margin-top:13px}
+.bar i{display:block;height:100%;background:var(--accent);border-radius:99px}
+.goaltext{font-size:12px;color:#9db1c3;margin-top:8px}
+
+.notice{
+  max-width:820px;
+  padding:11px 13px;
+  border:1px solid #5c4c2f;
+  background:#2a2316;
+  color:#f0d494;
+  border-radius:13px;
+  font-size:12px;
+  line-height:1.45;
+  margin:12px 0;
+}
+.flash{
+  max-width:820px;
+  padding:11px 13px;
+  border-radius:13px;
+  margin-bottom:14px;
+  font-size:13px;
+}
+.flash.ok{background:#123329;border:1px solid #28694f;color:#8ff2c5}
+.flash.err{background:#351b25;border:1px solid #6f3043;color:#ffb4c4}
+
+.section-title{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:12px;
+  margin:22px 0 11px;
+}
+.section-title.spaced{margin-top:32px}
+.section-title h2{margin:0;font-size:19px}
+.section-title span{font-size:12px;color:#8fa5b8}
+
+.grid{
+  display:grid;
+  grid-template-columns:1fr;
+  gap:14px;
+}
+.card{
+  min-width:0;
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:19px;
+  overflow:hidden;
+}
+.cardimg{
+  width:100%;
+  aspect-ratio:16/9;
+  max-height:260px;
+  object-fit:cover;
+  background:#091521;
+  display:block;
+}
+.cardbody{padding:16px}
+.meta{
+  display:flex;
+  justify-content:space-between;
+  gap:10px;
+  align-items:center;
+  margin-bottom:10px;
+}
+.tag{
+  font-size:10px;
+  font-weight:900;
+  background:#15344a;
+  color:#9fdcff;
+  padding:5px 8px;
+  border-radius:999px;
+}
+.reward{font-size:18px;font-weight:950;color:#58edac}
+.card h3{margin:0 0 7px;font-size:17px;line-height:1.25}
+.card p{font-size:13px;line-height:1.48;color:#9cb0c2}
+.instruction,.answer{
+  font-size:12px;
+  line-height:1.48;
+  background:#081521;
+  border:1px solid #1e354b;
+  border-radius:12px;
+  padding:11px;
+  margin:10px 0;
+  color:#bfd0df;
+  overflow-wrap:anywhere;
+}
+.stats{
+  font-size:11px;
+  color:#819aae;
+  display:flex;
+  gap:12px;
+  flex-wrap:wrap;
+  margin:12px 0;
+}
+
+.btn{
+  min-height:44px;
+  border:0;
+  border-radius:12px;
+  padding:11px 14px;
+  font-weight:900;
+  cursor:pointer;
+}
+.primary{background:var(--accent);color:var(--accent-dark)}
+.secondary{background:#12263a;color:#e6f1fc;border:1px solid #29435b}
+.danger{background:#3b1b25;color:#ffd7e2;border:1px solid #6c3042}
+.wide{width:100%}
+.linkbtn{display:flex;align-items:center;justify-content:center;text-align:center;text-decoration:none;margin-top:12px}
+.row{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+  gap:10px;
+}
+.row form{margin:0;min-width:0}
+
+.panel{
+  width:100%;
+  max-width:820px;
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:20px;
+  padding:18px;
+}
+label{
+  display:block;
+  font-size:12px;
+  color:#9bb0c3;
+  margin:13px 0 6px;
+}
+.field{
+  width:100%;
+  min-width:0;
+  min-height:44px;
+  border:1px solid var(--line-2);
+  background:#081521;
+  color:var(--text);
+  border-radius:12px;
+  padding:11px 12px;
+  outline:none;
+}
+.field:focus{border-color:var(--accent);box-shadow:0 0 0 2px rgba(80,227,164,.08)}
+textarea.field{min-height:104px;resize:vertical}
+.preview,.proof{
+  display:none;
+  width:100%;
+  max-height:280px;
+  object-fit:cover;
+  border-radius:13px;
+  margin:11px 0;
+}
+.proof{display:block}
+
+.client-summary{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:11px;
+  max-width:820px;
+  margin:17px 0;
+}
+.summary-box{
+  min-width:0;
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:15px;
+  padding:14px;
+}
+.summary-box small{display:block;line-height:1.25}
+.summary-box b{display:block;font-size:24px;margin-top:5px}
+.action-row{max-width:820px;margin:11px 0}
+.nomargin{margin-top:0}
+
+.nav{
+  position:fixed;
+  left:0;
+  right:0;
+  bottom:0;
+  z-index:50;
+  display:grid;
+  grid-template-columns:repeat(5,minmax(0,1fr));
+  width:100%;
+  max-width:1180px;
+  margin:0 auto;
+  padding:7px 8px max(8px,env(safe-area-inset-bottom));
+  background:rgba(7,17,31,.98);
+  border-top:1px solid #193248;
+  backdrop-filter:blur(14px);
+}
+.nav-worker{grid-template-columns:repeat(3,minmax(0,1fr))}
+.nav-client{grid-template-columns:repeat(4,minmax(0,1fr))}
+.nav a{
+  min-width:0;
+  min-height:48px;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  align-items:center;
+  gap:2px;
+  color:#829aae;
+  text-decoration:none;
+  text-align:center;
+  font-size:10px;
+  border-radius:11px;
+  padding:5px 4px;
+}
+.nav strong{display:block;font-size:18px;line-height:1}
+.nav a.active{color:var(--accent);background:rgba(80,227,164,.07)}
+
+.auth-wrap{
+  min-height:100vh;
+  display:grid;
+  place-items:center;
+  padding:24px 16px;
+}
+.auth-card{
+  width:min(430px,100%);
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:22px;
+  padding:22px;
+}
+.auth-card h1{margin-bottom:6px}
+.auth-card form .btn{margin-top:16px}
+.switch{display:block;color:var(--accent);text-decoration:none;margin-top:14px;font-size:13px}
+
+.userline{display:flex;gap:12px;align-items:center}
+.avatar{
+  width:52px;height:52px;border-radius:16px;
+  background:#17364d;
+  display:grid;place-items:center;
+  font-size:23px;
+}
+.panel hr{border:0;border-top:1px solid var(--line);margin:18px 0}
+.empty{
+  padding:34px 16px;
+  text-align:center;
+  color:#839bae;
+  border:1px dashed #223c53;
+  border-radius:16px;
+}
+.status{font-size:11px;font-weight:900;text-transform:uppercase}
+.started{color:#8bcaff}.submitted{color:#ffc978}.approved{color:#55e9aa}.rejected{color:#ff8fa9}
+
+@media(max-width:520px){
+  .head-name{display:none}
+  .pill{font-size:9px;padding:5px 7px}
+  main{padding:18px 14px 110px}
+  header{padding:13px 14px}
+  .hero h1{font-size:28px}
+  .goal{padding:16px}
+  .goalrow{align-items:flex-start}
+  .goalright{max-width:115px}
+  .row{grid-template-columns:1fr}
+  .client-summary{grid-template-columns:1fr}
+  .cardbody,.panel{padding:15px}
+}
+
+@media(min-width:640px){
+  .app{
+    display:grid;
+    grid-template-columns:210px minmax(0,1fr);
+    grid-template-rows:auto 1fr;
+    min-height:100vh;
+    border-left:1px solid #173149;
+    border-right:1px solid #173149;
+  }
+  .app>header{
+    grid-column:1/-1;
+    grid-row:1;
+    padding:15px 24px;
+  }
+  .app>main{
+    grid-column:2;
+    grid-row:2;
+    min-width:0;
+    padding:30px 32px 54px;
+  }
+  .nav{
+    position:sticky;
+    top:64px;
+    left:auto;
+    right:auto;
+    bottom:auto;
+    grid-column:1;
+    grid-row:2;
+    align-self:start;
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+    width:auto;
+    max-width:none;
+    min-height:calc(100vh - 64px);
+    margin:0;
+    padding:22px 12px;
+    background:#081522;
+    border-top:0;
+    border-right:1px solid #173149;
+    backdrop-filter:none;
+  }
+  .nav a{
+    min-height:48px;
+    flex-direction:row;
+    justify-content:flex-start;
+    gap:11px;
+    padding:10px 12px;
+    font-size:12px;
+    text-align:left;
+  }
+  .nav strong{
+    width:22px;
+    text-align:center;
+    font-size:17px;
+  }
+  .grid{
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+  .panel{
+    padding:22px;
+  }
+}
+
+@media(min-width:980px){
+  .app{grid-template-columns:230px minmax(0,1fr)}
+  .app>main{padding:34px 42px 64px}
+  .grid{gap:16px}
+  .hero h1{font-size:40px}
+}
+
+@media(min-width:1180px){
+  body{padding:18px}
+  .app{
+    min-height:calc(100vh - 36px);
+    border:1px solid #173149;
+    border-radius:26px;
+    overflow:clip;
+  }
+  .nav{min-height:calc(100vh - 101px)}
+}
 </style>
 </head>
 <body>
